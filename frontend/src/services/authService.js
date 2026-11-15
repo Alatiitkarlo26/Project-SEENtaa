@@ -96,17 +96,24 @@ export const authService = {
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      let data = {};
+      try {
+        const text = await response.text();
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {};
+      }
+
       if (!response.ok) {
-        throw new Error(data.error || 'Registration failed on backend server.');
+        throw new Error(data.error || `Registration failed (status ${response.status}).`);
       }
 
       // Save user session
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
       return data;
     } catch (err) {
-      if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
-        throw new Error('Backend server is offline! Please start the backend server by running "node server/index.js" or "npm run server" in a separate terminal.');
+      if (err.message === 'Failed to fetch' || err.name === 'TypeError' || err.message?.includes('JSON')) {
+        throw new Error('Backend server is offline! Please start the backend server by running "npm run dev" or "npm run dev:backend" in your terminal.');
       }
       console.error('Backend registration error:', err.message);
       throw err;
@@ -126,8 +133,18 @@ export const authService = {
         body: JSON.stringify({ email: cleanEmail, password })
       });
 
-      const data = await response.json();
+      let data = {};
+      try {
+        const text = await response.text();
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {};
+      }
+
       if (!response.ok) {
+        if (response.status === 502 || response.status === 504 || response.status === 503) {
+          throw new Error('Backend server is starting up or temporarily unreachable on port 5000. Please wait a moment and try again.');
+        }
         const err = new Error(data.error || 'Invalid university email or password.');
         err.notRegistered = !!data.notRegistered;
         err.status = response.status;
@@ -137,8 +154,8 @@ export const authService = {
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
       return data;
     } catch (err) {
-      if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
-        throw new Error('Backend server is offline! Please start the backend server by running "node server/index.js" or "npm run server" in a separate terminal.');
+      if (err.message === 'Failed to fetch' || err.name === 'TypeError' || err.message?.includes('JSON')) {
+        throw new Error('Backend server connection issue! Please ensure the backend is running ("npm run dev") and try again.');
       }
       console.error('Backend login error:', err.message);
       throw err;
@@ -155,7 +172,8 @@ export const authService = {
     try {
       const response = await fetch(`${API_URL}/auth/check-email?email=${encodeURIComponent(cleanEmail)}`);
       if (response.ok) {
-        return await response.json();
+        const text = await response.text();
+        return text ? JSON.parse(text) : { exists: false };
       }
     } catch (err) {
       console.warn('Could not check email existence:', err.message);
@@ -170,7 +188,8 @@ export const authService = {
     try {
       const res = await fetch(`${API_URL}/users`);
       if (res.ok) {
-        return await res.json();
+        const text = await res.text();
+        return text ? JSON.parse(text) : [];
       }
     } catch (err) {
       console.warn('Could not fetch users from backend database:', err);

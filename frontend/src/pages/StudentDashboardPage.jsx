@@ -6,6 +6,10 @@ import PostFoundItemModal from '../components/PostFoundItemModal';
 import ReportLostItemModal from '../components/ReportLostItemModal';
 import ItemDetailModal from '../components/ItemDetailModal';
 import NotificationsModal from '../components/NotificationsModal';
+import ProofOfOwnershipModal from '../components/ProofOfOwnershipModal';
+import MeetupChatModal from '../components/MeetupChatModal';
+import DisputeModal from '../components/DisputeModal';
+import FeedbackRatingModal from '../components/FeedbackRatingModal';
 import { itemService } from '../services/itemService';
 import { authService } from '../services/authService';
 import { otpService } from '../services/otpService';
@@ -24,7 +28,13 @@ import {
   ArrowRight,
   X,
   HelpCircle,
-  ChevronRight
+  ChevronRight,
+  MessageSquare,
+  Check,
+  ShieldAlert,
+  History,
+  Star,
+  Download
 } from 'lucide-react';
 import ScrollReveal from '../components/ScrollReveal';
 import { ItemCardSkeleton, LostReportCardSkeleton } from '../components/Skeleton';
@@ -35,12 +45,15 @@ export default function StudentDashboardPage() {
   const searchInputRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [activeTab, setActiveTab] = useState('campus-feed'); // 'campus-feed' | 'my-found' | 'my-lost'
+  const [activeTab, setActiveTab] = useState('campus-feed'); // 'campus-feed' | 'my-found' | 'my-lost' | 'claims-meetups'
 
   // Data states
   const [foundItems, setFoundItems] = useState([]);
   const [lostReports, setLostReports] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [claimsOnMyPosts, setClaimsOnMyPosts] = useState([]);
+  const [mySubmittedClaims, setMySubmittedClaims] = useState([]);
+  const [transactions, setTransactions] = useState([]);
   const [activeUsersCount, setActiveUsersCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,6 +64,14 @@ export default function StudentDashboardPage() {
   const [showReportLostModal, setShowReportLostModal] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [selectedItemForDetail, setSelectedItemForDetail] = useState(null);
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [itemForClaim, setItemForClaim] = useState(null);
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [activeChatClaim, setActiveChatClaim] = useState(null);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [itemForDispute, setItemForDispute] = useState(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [selectedTxForFeedback, setSelectedTxForFeedback] = useState(null);
 
   const latestEmail = otpService.getLatestEmail(user?.email);
 
@@ -59,17 +80,23 @@ export default function StudentDashboardPage() {
     else setLoading(true);
 
     try {
-      const [foundData, lostData, notifsData, usersData] = await Promise.all([
+      const [foundData, lostData, notifsData, usersData, incomingClaims, myClaims, txData] = await Promise.all([
         itemService.getFoundPosts(),
         user?.id ? itemService.getLostReports({ userId: user.id }) : [],
         user?.id ? itemService.getNotifications(user.id) : [],
-        authService.getAllUsers()
+        authService.getAllUsers(),
+        user?.id ? itemService.getClaims({ finderId: user.id }) : [],
+        user?.id ? itemService.getClaims({ claimantId: user.id }) : [],
+        user?.id ? itemService.getTransactions(user.id) : []
       ]);
 
       setFoundItems(foundData || []);
       setLostReports(lostData || []);
       setNotifications(notifsData || []);
       setActiveUsersCount(Array.isArray(usersData) && usersData.length > 0 ? usersData.length : (user ? 1 : 0));
+      setClaimsOnMyPosts(incomingClaims || []);
+      setMySubmittedClaims(myClaims || []);
+      setTransactions(txData || []);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -162,12 +189,76 @@ export default function StudentDashboardPage() {
     (user?.full_name?.includes(',') ? user.full_name.split(',')[1]?.trim() : user?.full_name?.split(' ')[0]) ||
     'Iskolar';
   const myFoundCount = foundItems.filter((i) => i.finder_id === user?.id).length;
+  const totalClaimsCount = claimsOnMyPosts.length + mySubmittedClaims.length;
 
   const tabs = [
     { key: 'campus-feed', label: 'Campus Feed', count: foundItems.length },
     { key: 'my-found', label: 'My Posts', count: myFoundCount },
-    { key: 'my-lost', label: 'My Reports', count: lostReports.length }
+    { key: 'my-lost', label: 'My Reports', count: lostReports.length },
+    { key: 'claims-meetups', label: 'Claims & Meetups', count: totalClaimsCount }
   ];
+
+  const handleApproveClaim = async (claimId) => {
+    if (!window.confirm('Are you sure you want to approve this ownership claim? This will open direct in-app chat to coordinate physical return at a safe zone.')) {
+      return;
+    }
+    try {
+      await itemService.updateClaimStatus(claimId, 'Approved');
+      loadData(true);
+    } catch (err) {
+      alert(err.message || 'Failed to approve claim.');
+    }
+  };
+
+  const handleRejectClaim = async (claimId) => {
+    const reason = window.prompt('Provide a reason for rejecting this claim (e.g. Inaccurate distinguishing features):', 'Details did not match physical item features.');
+    if (reason === null) return;
+    try {
+      await itemService.updateClaimStatus(claimId, 'Rejected', reason);
+      loadData(true);
+    } catch (err) {
+      alert(err.message || 'Failed to reject claim.');
+    }
+  };
+
+  const exportAuditLogCSV = () => {
+    if (!transactions || transactions.length === 0) {
+      alert('No finalized handover records to export.');
+      return;
+    }
+    const headers = ['Transaction ID', 'Item Name', 'Safe Zone Location', 'Finder Name', 'Claimant Name', 'Date Completed', 'SHA-256 Ledger Signature'];
+    const rows = transactions.map((t) => [
+      `"${t.id}"`,
+      `"${t.post?.item_name || 'N/A'}"`,
+      `"${t.campus_location || 'N/A'}"`,
+      `"${t.finder?.full_name || 'Finder'}"`,
+      `"${t.claimant?.full_name || 'Claimant'}"`,
+      `"${t.completed_at || t.created_at || 'N/A'}"`,
+      `"${t.ledger_hash || 'Pending'}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `SEENta_Handover_Audit_Ledger_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportAuditLogJSON = () => {
+    if (!transactions || transactions.length === 0) {
+      alert('No finalized handover records to export.');
+      return;
+    }
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(transactions, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `SEENta_Handover_Audit_Ledger_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.removeChild(downloadAnchor);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans pb-20 transition-colors duration-200">
@@ -603,6 +694,263 @@ export default function StudentDashboardPage() {
               </div>
             )}
           </div>
+        ) : activeTab === 'claims-meetups' ? (
+          /* ================= CLAIMS & MEETUPS WORKFLOW ================= */
+          <div className="mt-4 space-y-8">
+            {/* 1. Incoming Claims on Items You Found */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Claims on Items You Found</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-semibold">
+                      {claimsOnMyPosts.length}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Review submitted proofs of ownership and approve or decline them.
+                  </p>
+                </div>
+              </div>
+
+              {claimsOnMyPosts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {claimsOnMyPosts.map((claim) => (
+                    <div
+                      key={claim.id}
+                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-[11px] font-bold text-slate-500">
+                            Claim for: <strong className="text-slate-900 dark:text-white">{claim.post?.item_name || 'Found Item'}</strong>
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              claim.status === 'Approved'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : claim.status === 'Rejected'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}
+                          >
+                            {claim.status}
+                          </span>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-xs text-slate-700 dark:text-slate-300 space-y-1">
+                          <div>Claimant: <strong>{claim.claimant?.full_name}</strong> ({claim.claimant?.student_id})</div>
+                          {claim.serial_number && <div>Serial / ID: <code className="font-mono bg-white dark:bg-slate-900 px-1 rounded">{claim.serial_number}</code></div>}
+                          <div className="pt-1">
+                            <span className="font-semibold text-slate-900 dark:text-white">Submitted Proof:</span>
+                            <p className="italic text-slate-600 dark:text-slate-400 mt-0.5">&quot;{claim.proof_description}&quot;</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(claim.created_at).toLocaleDateString()}
+                        </span>
+
+                        {claim.status === 'UnderReview' ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleRejectClaim(claim.id)}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApproveClaim(claim.id)}
+                              className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition cursor-pointer"
+                            >
+                              Approve Claim
+                            </button>
+                          </div>
+                        ) : claim.status === 'Approved' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveChatClaim(claim);
+                              setShowChatModal(true);
+                            }}
+                            className="px-4 py-1.5 rounded-full bg-theme hover:bg-theme-hover text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Meetup Chat &amp; Handover</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-red-500 italic">Declined: {claim.rejection_reason}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center text-xs text-slate-500">
+                  No claims currently submitted on items you found.
+                </div>
+              )}
+            </div>
+
+            {/* 2. Claims You Submitted on Other Items */}
+            <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>Your Claims on Found Belongings</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-semibold">
+                    {mySubmittedClaims.length}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Track verification status of items you claimed.
+                </p>
+              </div>
+
+              {mySubmittedClaims.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {mySubmittedClaims.map((claim) => (
+                    <div
+                      key={claim.id}
+                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-sm font-bold text-slate-900 dark:text-white">
+                            {claim.post?.item_name || 'Item Claim'}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              claim.status === 'Approved'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : claim.status === 'Rejected'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}
+                          >
+                            {claim.status === 'UnderReview' ? 'Under Finder Review' : claim.status}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl italic">
+                          &quot;{claim.proof_description}&quot;
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(claim.created_at).toLocaleDateString()}
+                        </span>
+
+                        {claim.status === 'Approved' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveChatClaim(claim);
+                              setShowChatModal(true);
+                            }}
+                            className="px-4 py-1.5 rounded-full bg-theme hover:bg-theme-hover text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Meetup Chat &amp; Handover</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center text-xs text-slate-500">
+                  You haven&apos;t filed any claims yet.
+                </div>
+              )}
+            </div>
+
+            {/* 3. Completed Turnover History */}
+            {transactions.length > 0 && (
+              <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <History className="w-4 h-4 text-emerald-600" />
+                    <span>Finalized Handover History &amp; Audit Log</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
+                      {transactions.length}
+                    </span>
+                  </h3>
+
+                  {/* Export Audit Log Actions */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={exportAuditLogCSV}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                      title="Download cryptographic audit records in CSV format"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Export CSV</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportAuditLogJSON}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                      title="Download full JSON audit ledger"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Export JSON</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {transactions.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="p-5 rounded-2xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 text-xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white">
+                          {tx.post?.item_name || 'Returned Item'}
+                        </span>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded-full">
+                          Reunited
+                        </span>
+                      </div>
+                      <div className="text-slate-600 dark:text-slate-400 space-y-1">
+                        <div>
+                          Exchange Safe Zone: <strong>{tx.campus_location}</strong>
+                        </div>
+                        <div>
+                          Participants: <strong>{tx.finder?.full_name || 'Finder'}</strong> &amp; <strong>{tx.claimant?.full_name || 'Claimant'}</strong>
+                        </div>
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono bg-white/70 dark:bg-slate-900/60 p-2 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                        Ledger Signature: {tx.ledger_hash ? `${tx.ledger_hash.slice(0, 20)}...` : 'Pending'}
+                      </div>
+                      <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-900/30 flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(tx.completed_at || tx.created_at).toLocaleDateString()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTxForFeedback(tx);
+                            setShowFeedbackModal(true);
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 font-semibold text-[11px] border border-amber-300 dark:border-amber-700 transition cursor-pointer"
+                        >
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                          <span>Rate Experience</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           /* ================= FOUND ITEMS FEED ================= */
           <div className="mt-3">
@@ -829,8 +1177,58 @@ export default function StudentDashboardPage() {
         isOpen={!!selectedItemForDetail}
         item={selectedItemForDetail}
         onClose={() => setSelectedItemForDetail(null)}
-        onInitiateClaim={() => {
-          alert('Proof of Ownership Claim workflow initiated. You will be redirected to submit detailed verification proof.');
+        onInitiateClaim={(item) => {
+          setSelectedItemForDetail(null);
+          setItemForClaim(item);
+          setShowClaimModal(true);
+        }}
+        onReportDispute={(item) => {
+          setSelectedItemForDetail(null);
+          setItemForDispute(item);
+          setShowDisputeModal(true);
+        }}
+      />
+
+      {/* Proof of Ownership Claim Modal */}
+      <ProofOfOwnershipModal
+        isOpen={showClaimModal}
+        item={itemForClaim}
+        onClose={() => {
+          setShowClaimModal(false);
+          setItemForClaim(null);
+        }}
+        onClaimSubmitted={() => {
+          loadData(true);
+        }}
+      />
+
+      {/* Meetup Coordination Chat Modal */}
+      <MeetupChatModal
+        isOpen={showChatModal}
+        claim={activeChatClaim}
+        onClose={() => {
+          setShowChatModal(false);
+          setActiveChatClaim(null);
+        }}
+        onTurnoverConfirmed={(tx) => {
+          loadData(true);
+          if (tx) {
+            setSelectedTxForFeedback(tx);
+            setShowFeedbackModal(true);
+          }
+        }}
+      />
+
+      {/* Report False Claim Dispute Modal */}
+      <DisputeModal
+        isOpen={showDisputeModal}
+        post={itemForDispute}
+        onClose={() => {
+          setShowDisputeModal(false);
+          setItemForDispute(null);
+        }}
+        onDisputeFiled={() => {
+          loadData(true);
         }}
       />
 
@@ -846,6 +1244,19 @@ export default function StudentDashboardPage() {
         emailData={latestEmail}
         isOpen={showOutlookModal}
         onClose={() => setShowOutlookModal(false)}
+      />
+
+      {/* Peer Feedback & Community Rating Modal */}
+      <FeedbackRatingModal
+        isOpen={showFeedbackModal}
+        transaction={selectedTxForFeedback}
+        onClose={() => {
+          setShowFeedbackModal(false);
+          setSelectedTxForFeedback(null);
+        }}
+        onFeedbackSubmitted={() => {
+          loadData(true);
+        }}
       />
     </div>
   );

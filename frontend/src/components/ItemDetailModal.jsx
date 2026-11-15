@@ -13,7 +13,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 
-export default function ItemDetailModal({ isOpen, onClose, item, onInitiateClaim }) {
+export default function ItemDetailModal({ isOpen, onClose, item, onInitiateClaim, onReportDispute }) {
   const { user } = useAuth();
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
 
@@ -201,6 +201,33 @@ export default function ItemDetailModal({ isOpen, onClose, item, onInitiateClaim
             {isFinder ? (
               <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4" /> You posted this item
+              </span>
+            ) : item.status === 'Reunited' ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Item Returned
+                </span>
+                {onReportDispute && (
+                  <button
+                    type="button"
+                    onClick={() => onReportDispute(item)}
+                    className="px-4 py-2 rounded-full bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-950/60 dark:text-red-300 text-xs font-semibold transition cursor-pointer"
+                  >
+                    Report False Claim
+                  </button>
+                )}
+              </div>
+            ) : item.status === 'ClaimUnderReview' ? (
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-3 py-1.5 rounded-full border border-amber-200 dark:border-amber-900">
+                Claim Under Review
+              </span>
+            ) : item.status === 'CoordinatingHandover' ? (
+              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1.5 rounded-full border border-indigo-200 dark:border-indigo-900">
+                Coordinating Safe-Zone Meetup
+              </span>
+            ) : item.status === 'Disputed' ? (
+              <span className="text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1.5 rounded-full border border-red-200 dark:border-red-900">
+                Under Dispute Investigation
               </span>
             ) : (
               <button

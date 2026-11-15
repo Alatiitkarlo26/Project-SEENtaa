@@ -4,31 +4,80 @@ import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import dns from 'dns';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { db } from './db.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 dns.setDefaultResultOrder('ipv4first');
+dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'seenta_jwt_pup_binan_super_secure_secret_2026';
 
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // -------------------------------------------------------------
-// Direct Password Verification (Plain Text Mode)
+// JWT Token Generation & Verification Middleware
+// -------------------------------------------------------------
+
+function generateToken(user) {
+  return jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      studentId: user.studentId || user.student_id || ''
+    },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+}
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      req.user = null;
+    } else {
+      req.user = user;
+    }
+    next();
+  });
+}
+
+app.use(authenticateToken);
+
+// -------------------------------------------------------------
+// Cryptographic Password Hashing & Verification (Bcrypt + Scrypt)
 // -------------------------------------------------------------
 
 function hashPassword(password) {
-  return password; // Stored as plain text as requested
+  return bcrypt.hashSync(password, 10);
 }
 
 function verifyPassword(password, storedPassword) {
   if (!storedPassword || typeof storedPassword !== 'string') return false;
-  // Direct plain text comparison
+  // 1. Bcrypt hash check (Standard secure mode)
+  if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$')) {
+    return bcrypt.compareSync(password, storedPassword);
+  }
+  // 2. Direct comparison for existing legacy plaintext records (auto-upgrades on login)
   if (password === storedPassword) return true;
-  // Fallback for legacy hashes during transition
+  // 3. Fallback for legacy salt:key scrypt hashes during transition
   if (storedPassword.includes(':')) {
     try {
       const [salt, key] = storedPassword.split(':');
@@ -177,7 +226,8 @@ app.post('/api/auth/register', async (req, res) => {
     console.log(`[Database] User registered: ${newUser.email} (${newUser.role})`);
 
     const { password: _p, ...safeUser } = newUser;
-    res.status(201).json(safeUser);
+    const token = generateToken(newUser);
+    res.status(201).json({ ...safeUser, token });
   } catch (err) {
     console.error('[Registration Error]', err.message);
     res.status(400).json({ error: err.message });
@@ -208,10 +258,22 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    // Auto-upgrade legacy plaintext password to secure bcrypt hash
+    if (user.password && !user.password.startsWith('$2a$') && !user.password.startsWith('$2b$')) {
+      try {
+        const upgradedHash = hashPassword(password);
+        await db.updateUser(user.id, { password: upgradedHash });
+        console.log(`[Security] 🔒 Auto-upgraded password to bcrypt hash for user: ${user.email}`);
+      } catch (upgradeErr) {
+        console.warn('[Security] Password auto-upgrade warning:', upgradeErr.message);
+      }
+    }
+
     console.log(`[Database] User authenticated: ${user.email} (${user.role})`);
 
     const { password: _p, ...safeUser } = user;
-    res.json(safeUser);
+    const token = generateToken(user);
+    res.json({ ...safeUser, token });
   } catch (err) {
     console.error('Login error:', err.message);
     res.status(500).json({ error: 'Server authentication error.' });
@@ -581,6 +643,158 @@ app.post('/api/send-otp', async (req, res) => {
   });
 });
 
+// -------------------------------------------------------------
+// Transactional Event Email Dispatcher (SYS-SEEN-0002)
+// -------------------------------------------------------------
+async function sendNotificationEmail({ to, recipientName = 'Iskolar', subject, heading, bodyText, actionText, actionUrl }) {
+  if (!to) return { success: false, error: 'Recipient email missing' };
+
+  const cleanEmail = to.trim().toLowerCase();
+  const fromSender = process.env.SMTP_FROM || `"Project SEENta" <${process.env.SMTP_USER || 'noreply@seenta.app'}>`;
+  const appUrl = process.env.FRONTEND_URL || 'https://projectseenta.vercel.app';
+  const resolvedActionUrl = actionUrl || appUrl;
+
+  const textBody = [
+    `Mabuhay, ${recipientName}!`,
+    '',
+    heading || subject,
+    '--------------------------------------------------',
+    bodyText,
+    '',
+    actionText ? `${actionText}: ${resolvedActionUrl}` : `Open SEENta Portal: ${appUrl}`,
+    '',
+    'Politeknikong Unibersidad ng Pilipinas — Sangay ng Biñan',
+    'Official Peer-to-Peer Lost & Found Clearinghouse'
+  ].join('\n');
+
+  const htmlBody = `
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>${subject}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f1f5f9; padding: 24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 520px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <tr>
+            <td style="background-color: #800000; padding: 18px 24px; text-align: left;">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td width="42" valign="middle">
+                    <div style="background-color: #ffffff; color: #800000; font-weight: 900; font-size: 16px; border-radius: 8px; width: 36px; height: 36px; line-height: 36px; text-align: center; font-family: monospace;">
+                      ST
+                    </div>
+                  </td>
+                  <td valign="middle" style="padding-left: 12px;">
+                    <div style="color: #ffffff; font-size: 16px; font-weight: 800; letter-spacing: 0.5px;">Project SEENta</div>
+                    <div style="color: #fef08a; font-size: 11px; font-weight: 500;">PUP Biñan Campus • P2P Lost &amp; Found</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 28px 24px 20px 24px; text-align: left;">
+              <p style="margin: 0 0 12px 0; font-size: 15px; color: #1e293b; font-weight: 600;">
+                Mabuhay, ${recipientName}!
+              </p>
+              <h2 style="margin: 0 0 16px 0; font-size: 17px; color: #800000; font-weight: 700;">
+                ${heading || subject}
+              </h2>
+              <div style="margin: 0 0 20px 0; font-size: 13px; line-height: 1.6; color: #475569; white-space: pre-line;">
+${bodyText}
+              </div>
+              ${actionText ? `
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
+                <tr>
+                  <td align="center" style="border-radius: 8px; background-color: #800000;">
+                    <a href="${resolvedActionUrl}" target="_blank" style="font-size: 13px; font-weight: 600; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; display: inline-block;">
+                      ${actionText} &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              ` : ''}
+              <p style="margin: 24px 0 0 0; font-size: 11px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #f1f5f9; padding-top: 12px;">
+                This is an automated notification from Project SEENta. For safety, always complete item handoffs at official Campus Safe-Exchange Zones.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; text-align: center;">
+              <p style="margin: 0; font-size: 10px; color: #94a3b8; line-height: 1.4;">
+                Politeknikong Unibersidad ng Pilipinas — Sangay ng Biñan<br/>
+                Zapote, Biñan City, Laguna • Official Student Clearinghouse
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  try {
+    if (process.env.GAS_MAILER_URL) {
+      const gasRes = await fetch(process.env.GAS_MAILER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: cleanEmail, subject, text: textBody, html: htmlBody })
+      });
+      if (gasRes.ok) {
+        console.log(`[Event Email GAS] Sent to ${cleanEmail}: "${subject}"`);
+        return { success: true, mode: 'gas_https' };
+      }
+    }
+
+    if (process.env.BREVO_API_KEY) {
+      const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': process.env.BREVO_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: { name: 'Project SEENta PUP Biñan', email: process.env.SMTP_USER || 'karloalatiit0@gmail.com' },
+          to: [{ email: cleanEmail, name: recipientName }],
+          subject,
+          htmlContent: htmlBody,
+          textContent: textBody
+        })
+      });
+      if (brevoRes.ok) {
+        console.log(`[Event Email Brevo] Sent to ${cleanEmail}: "${subject}"`);
+        return { success: true, mode: 'brevo_https' };
+      }
+    }
+
+    const transporter = createTransporter();
+    if (transporter) {
+      await transporter.sendMail({
+        from: fromSender,
+        to: cleanEmail,
+        subject,
+        text: textBody,
+        html: htmlBody
+      });
+      console.log(`[Event Email SMTP] Sent to ${cleanEmail}: "${subject}"`);
+      return { success: true, mode: 'smtp' };
+    }
+
+    console.log(`[Event Email Simulated] To: ${cleanEmail} | Subject: "${subject}"`);
+    return { success: true, mode: 'simulated' };
+  } catch (err) {
+    console.error(`[Event Email Failed] Could not deliver to ${cleanEmail}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 // =========================================================================
 // FOUND ITEM POSTS ENDPOINTS (FR-SEEN-0003, UC-003)
 // =========================================================================
@@ -805,12 +1019,386 @@ app.put('/api/notifications/read-all', async (req, res) => {
   }
 });
 
+// =========================================================================
+// PROOF OF OWNERSHIP CLAIMS ENDPOINTS (FR-SEEN-0004, UC-004)
+// =========================================================================
+
+// 1. Get claims (filter by postId, claimantId, finderId, status)
+app.get('/api/claims', async (req, res) => {
+  try {
+    const { postId, claimantId, finderId, status } = req.query;
+    const claims = await db.getClaims({ postId, claimantId, finderId, status });
+    res.json({ success: true, count: claims.length, claims });
+  } catch (err) {
+    console.error('Error fetching claims:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve claims.' });
+  }
+});
+
+// 2. Get claim by ID
+app.get('/api/claims/:id', async (req, res) => {
+  try {
+    const claim = await db.getClaimById(req.params.id);
+    if (!claim) {
+      return res.status(404).json({ success: false, error: 'Claim not found.' });
+    }
+    res.json({ success: true, claim });
+  } catch (err) {
+    console.error('Error fetching claim details:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve claim details.' });
+  }
+});
+
+// 3. Submit proof of ownership claim
+app.post('/api/claims', async (req, res) => {
+  try {
+    const { postId, post_id, claimantId, claimant_id, proofDescription, proof_description, serialNumber, serial_number } = req.body;
+    const actualPostId = postId || post_id;
+    const actualClaimantId = claimantId || claimant_id || req.user?.id;
+    const actualProof = proofDescription || proof_description;
+
+    if (!actualPostId || !actualClaimantId || !actualProof) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing mandatory fields: postId, claimantId, and proofDescription are required.'
+      });
+    }
+
+    const createdClaim = await db.createClaim({
+      postId: actualPostId,
+      claimantId: actualClaimantId,
+      proofDescription: actualProof,
+      serialNumber: serialNumber || serial_number
+    });
+
+    // Transactional Event Email: Notify Finder of New Ownership Claim (SYS-SEEN-0002)
+    try {
+      const post = await db.getFoundPostById(actualPostId);
+      if (post && post.finder && post.finder.email) {
+        sendNotificationEmail({
+          to: post.finder.email,
+          recipientName: post.finder.full_name || 'Finder',
+          subject: `[Project SEENta] New Ownership Claim on "${post.item_name}"`,
+          heading: `New Ownership Claim Awaiting Your Review`,
+          bodyText: `A fellow Iskolar has submitted proof of ownership for "${post.item_name}".\n\nSubmitted Proof Details:\n"${actualProof}"\n${serialNumber ? `Serial / Identifying Number: ${serialNumber}\n` : ''}\nPlease review this claim in your SEENta Dashboard under "Claims & Meetups" to verify or decline.`,
+          actionText: 'Review Claim in Dashboard',
+          actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+        }).catch((e) => console.error('Background claim notification email error:', e.message));
+      }
+    } catch (emailErr) {
+      console.error('Finder notification lookup failed:', emailErr.message);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Proof of ownership claim submitted successfully. The finder has been notified.',
+      claim: createdClaim
+    });
+  } catch (err) {
+    console.error('Error submitting claim:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to submit ownership claim.' });
+  }
+});
+
+// 4. Finder approves or rejects a claim
+app.put('/api/claims/:id/status', async (req, res) => {
+  try {
+    const { status, rejectionReason } = req.body;
+    if (!status || !['Approved', 'Rejected', 'Canceled'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Valid status (Approved, Rejected, Canceled) is required.' });
+    }
+
+    const updated = await db.updateClaimStatus(req.params.id, status, rejectionReason);
+
+    // Transactional Event Email: Notify Claimant of Approval or Rejection (SYS-SEEN-0002)
+    try {
+      const claim = await db.getClaimById(req.params.id);
+      if (claim && claim.claimant && claim.claimant.email) {
+        if (status === 'Approved') {
+          sendNotificationEmail({
+            to: claim.claimant.email,
+            recipientName: claim.claimant.full_name || 'Claimant',
+            subject: `[Project SEENta] Your Claim for "${claim.post?.item_name || 'your item'}" has been APPROVED! 🎉`,
+            heading: `Claim Approved — Coordination Chat Active`,
+            bodyText: `Congratulations! The finder has reviewed and approved your proof of ownership claim for "${claim.post?.item_name}".\n\nDirect in-app meetup coordination chat is now active in your dashboard. You may now agree on a meetup schedule at an official Campus Safe-Exchange Zone (Main Lobby, Library Entrance, or Guard Post).`,
+            actionText: 'Open Meetup Chat',
+            actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+          }).catch((e) => console.error('Background approval notification email error:', e.message));
+        } else if (status === 'Rejected') {
+          sendNotificationEmail({
+            to: claim.claimant.email,
+            recipientName: claim.claimant.full_name || 'Claimant',
+            subject: `[Project SEENta] Ownership Claim Update — ${claim.post?.item_name || 'Item'}`,
+            heading: `Claim Verification Update`,
+            bodyText: `Your ownership claim for "${claim.post?.item_name}" was reviewed and declined by the finder.\n\nReason given: ${rejectionReason || 'Identifying details did not match physical item features.'}\n\nIf you believe this decision is in error, you may file a dispute with the Campus Security Office via Project SEENta.`,
+            actionText: 'Open Dashboard',
+            actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+          }).catch((e) => console.error('Background rejection notification email error:', e.message));
+        }
+      }
+    } catch (emailErr) {
+      console.error('Claimant notification lookup failed:', emailErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Claim status updated to ${status}.`,
+      claim: updated
+    });
+  } catch (err) {
+    console.error('Error updating claim status:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to update claim status.' });
+  }
+});
+
+// =========================================================================
+// IN-APP MEETUP COORDINATION CHAT (FR-SEEN-0004)
+// =========================================================================
+
+// 1. Get messages for a claim
+app.get('/api/messages/:claimId', async (req, res) => {
+  try {
+    const msgs = await db.getMessages(req.params.claimId);
+    res.json({ success: true, count: msgs.length, messages: msgs });
+  } catch (err) {
+    console.error('Error fetching messages:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve messages.' });
+  }
+});
+
+// 2. Post a message
+app.post('/api/messages', async (req, res) => {
+  try {
+    const { claimId, claim_id, senderId, sender_id, messageText, message_text } = req.body;
+    const actualClaimId = claimId || claim_id;
+    const actualSenderId = senderId || sender_id || req.user?.id;
+    const text = messageText || message_text;
+
+    if (!actualClaimId || !actualSenderId || !text) {
+      return res.status(400).json({ success: false, error: 'claimId, senderId, and messageText are required.' });
+    }
+
+    const msg = await db.createMessage({
+      claimId: actualClaimId,
+      senderId: actualSenderId,
+      messageText: text
+    });
+    res.status(201).json({ success: true, message: msg });
+  } catch (err) {
+    console.error('Error sending message:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to send message.' });
+  }
+});
+
+// =========================================================================
+// TRANSACTION RECORDS & TURNOVER CONFIRMATION (FR-SEEN-0005, UC-005)
+// =========================================================================
+
+// 1. Get user transactions
+app.get('/api/transactions', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const txs = await db.getTransactions(userId || req.user?.id);
+    res.json({ success: true, count: txs.length, transactions: txs });
+  } catch (err) {
+    console.error('Error fetching transactions:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve transactions.' });
+  }
+});
+
+// 2. Mutual turnover confirmation
+app.post('/api/transactions/confirm', async (req, res) => {
+  try {
+    const { postId, post_id, claimId, claim_id, userId, user_id, campusLocation } = req.body;
+    const actualPostId = postId || post_id;
+    const actualClaimId = claimId || claim_id;
+    const actualUserId = userId || user_id || req.user?.id;
+
+    if (!actualPostId || !actualClaimId || !actualUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'postId, claimId, and userId are required to confirm turnover.'
+      });
+    }
+
+    const tx = await db.confirmTurnover({
+      postId: actualPostId,
+      claimId: actualClaimId,
+      userId: actualUserId,
+      campusLocation: campusLocation || 'Main Campus Lobby'
+    });
+
+    // Transactional Event Email: Dispatch Cryptographic Ledger Receipt on Mutual Finalization (SYS-SEEN-0002)
+    if (tx.ledger_hash) {
+      try {
+        const claim = await db.getClaimById(actualClaimId);
+        const users = await db.getUsers();
+        const finder = users.find((u) => u.id === tx.finder_id);
+        const claimant = users.find((u) => u.id === tx.claimant_id);
+        const itemName = claim?.post?.item_name || 'Lost & Found Item';
+
+        const receiptDetails = `Both parties have verified and finalized the physical turnover of "${itemName}" at ${tx.campus_location || 'Campus Safe Zone'}.\n\nOfficial Transaction ID: ${tx.id}\nCryptographic SHA-256 Ledger Signature:\n${tx.ledger_hash}\nTimestamp: ${tx.completed_at || new Date().toISOString()}\n\nThank you for upholding peer trust and integrity at PUP Biñan Campus! Please take a moment to leave community feedback in your dashboard.`;
+
+        if (finder?.email) {
+          sendNotificationEmail({
+            to: finder.email,
+            recipientName: finder.full_name || 'Finder',
+            subject: `[Project SEENta] Official Handover Receipt — ${itemName}`,
+            heading: `Turnover Finalized & Verified 🤝`,
+            bodyText: receiptDetails,
+            actionText: 'View Handover Record',
+            actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+          }).catch((e) => console.error('Turnover receipt email to finder failed:', e.message));
+        }
+
+        if (claimant?.email) {
+          sendNotificationEmail({
+            to: claimant.email,
+            recipientName: claimant.full_name || 'Claimant',
+            subject: `[Project SEENta] Official Handover Receipt — ${itemName}`,
+            heading: `Item Reunited Safely! 🎒`,
+            bodyText: receiptDetails,
+            actionText: 'View Handover Record',
+            actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+          }).catch((e) => console.error('Turnover receipt email to claimant failed:', e.message));
+        }
+      } catch (receiptErr) {
+        console.error('Turnover receipt dispatch failed:', receiptErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Turnover status recorded.',
+      transaction: tx
+    });
+  } catch (err) {
+    console.error('Error confirming turnover:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to confirm turnover.' });
+  }
+});
+
+// =========================================================================
+// DISPUTE REPORTS (FR-SEEN-0006, Report Falsely Claimed Item)
+// =========================================================================
+
+// 1. Get all disputes
+app.get('/api/disputes', async (req, res) => {
+  try {
+    const disputes = await db.getDisputes();
+    res.json({ success: true, count: disputes.length, disputes });
+  } catch (err) {
+    console.error('Error fetching disputes:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve disputes.' });
+  }
+});
+
+// 2. Submit a false claim dispute
+app.post('/api/disputes', async (req, res) => {
+  try {
+    const { transactionId, transaction_id, postId, post_id, reportedByUserId, reported_by_user_id, reason, evidenceDescription } = req.body;
+    const actualTxId = transactionId || transaction_id;
+    const actualPostId = postId || post_id;
+    const actualReporterId = reportedByUserId || reported_by_user_id || req.user?.id;
+
+    if (!actualPostId || !actualReporterId || !reason) {
+      return res.status(400).json({
+        success: false,
+        error: 'postId, reportedByUserId, and reason are required to file a dispute.'
+      });
+    }
+
+    const dispute = await db.createDispute({
+      transactionId: actualTxId,
+      postId: actualPostId,
+      reportedByUserId: actualReporterId,
+      reason,
+      evidenceDescription: evidenceDescription || ''
+    });
+
+    // Transactional Event Email: Alert Campus Security Office & Confirm to Student (SYS-SEEN-0002)
+    try {
+      const post = await db.getFoundPostById(actualPostId);
+      const users = await db.getUsers();
+      const reporter = users.find((u) => u.id === actualReporterId);
+      const disputeDetails = `A formal dispute has been logged for item: "${post?.item_name || 'Item'}" (Post ID: ${actualPostId}).\n\nReported by: ${reporter?.full_name || 'Student'} (${reporter?.email || 'N/A'}, Student ID: ${reporter?.student_id || 'N/A'})\nReason: ${reason}\nEvidence: ${evidenceDescription || 'No additional evidence attached'}\n\nItem status in the SEENta catalog has been locked to "Disputed". Security administrators may inspect this case for administrative resolution.`;
+
+      // Dispatch alert to Campus Security
+      sendNotificationEmail({
+        to: process.env.SECURITY_OFFICE_EMAIL || 'security.binan@pup.edu.ph',
+        recipientName: 'Campus Security & Student Affairs',
+        subject: `[SECURITY ALERT] Disputed Item Claim — ${post?.item_name || 'Property'}`,
+        heading: `Escalation: Disputed Lost & Found Item`,
+        bodyText: disputeDetails,
+        actionText: 'Review System Logs',
+        actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+      }).catch((e) => console.error('Security alert email error:', e.message));
+
+      // Dispatch acknowledgment to reporting student
+      if (reporter?.email) {
+        sendNotificationEmail({
+          to: reporter.email,
+          recipientName: reporter.full_name || 'Student',
+          subject: `[Project SEENta] Dispute Report Logged — ${post?.item_name || 'Item'}`,
+          heading: `Dispute Logged with Campus Security`,
+          bodyText: `Your dispute report for "${post?.item_name}" has been registered. The item status has been locked to "Disputed" to prevent unauthorized turnover.\n\nCampus Security and administrative staff have been alerted to review the case.`,
+          actionText: 'Open Dashboard',
+          actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+        }).catch((e) => console.error('Reporter dispute confirmation email error:', e.message));
+      }
+    } catch (disputeErr) {
+      console.error('Dispute notification lookup failed:', disputeErr.message);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Dispute filed successfully. Campus authorities and item records have been flagged.',
+      dispute
+    });
+  } catch (err) {
+    console.error('Error filing dispute:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to file dispute.' });
+  }
+});
+
+// =========================================================================
+// FEEDBACK & RATINGS (FR-SEEN-0007, Community Trust)
+// =========================================================================
+
+// 1. Get feedback (filter by transactionId, raterId, ratedUserId)
+app.get('/api/feedback', async (req, res) => {
+  try {
+    const { transactionId, raterId, ratedUserId } = req.query;
+    const feedbackList = await db.getFeedback({ transactionId, raterId, ratedUserId });
+    res.json({ success: true, count: feedbackList.length, feedback: feedbackList });
+  } catch (err) {
+    console.error('Error fetching feedback:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve feedback.' });
+  }
+});
+
+// 2. Submit feedback & rating
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const { transactionId, raterId, ratedUserId, rating, comments } = req.body;
+    if (!transactionId || !raterId || !ratedUserId || !rating) {
+      return res.status(400).json({ success: false, error: 'transactionId, raterId, ratedUserId, and rating are required.' });
+    }
+
+    const fb = await db.createFeedback({ transactionId, raterId, ratedUserId, rating, comments });
+    res.status(201).json({ success: true, message: 'Feedback submitted.', feedback: fb });
+  } catch (err) {
+    console.error('Error submitting feedback:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to submit feedback.' });
+  }
+});
+
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`===============================================`);
     console.log(` SEENta Mailer & DB API listening on port ${PORT}`);
     console.log(` Database: ${db.isCloud() ? 'Supabase Cloud (PostgreSQL)' : 'server/data/users.json'}`);
-    console.log(` Password Storage: Plain Text (Direct Store & Verify)`);
+    console.log(` Security: Bcrypt Password Hashing + JWT Sessions Active`);
     console.log(` OTP Security: Server-side enforced with rate limits`);
     console.log(` Check status at: http://localhost:${PORT}/api/status`);
     console.log(`===============================================`);

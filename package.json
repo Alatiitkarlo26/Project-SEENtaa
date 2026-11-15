@@ -1,36 +1,18 @@
 {
-  "name": "seenta",
+  "name": "project-seenta-monorepo",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "version": "1.0.0",
+  "description": "Project SEENta: Peer-to-Peer Lost and Found Management System for PUP Biñan Campus",
   "scripts": {
-    "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"yellow,cyan\" \"node --watch server/index.js\" \"vite\"",
-    "dev:ui": "vite",
-    "server": "node --watch server/index.js",
-    "start": "node server/index.js",
-    "build": "vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.117.2",
-    "@tailwindcss/vite": "^4.3.3",
-    "cors": "^2.8.6",
-    "dotenv": "^18.0.5",
-    "express": "^5.2.1",
-    "lucide-react": "^1.49.0",
-    "nodemailer": "^10.0.13",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "tailwindcss": "^4.3.3",
-    "undici": "^8.11.2"
+    "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"yellow,cyan\" \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix backend",
+    "lint": "npm run lint --prefix frontend"
   },
   "devDependencies": {
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.7",
-    "@vitejs/plugin-react": "^6.1.1",
-    "concurrently": "^10.0.5",
-    "oxlint": "^1.81.0",
-    "vite": "^8.3.0"
+    "concurrently": "^9.1.2"
   }
 }

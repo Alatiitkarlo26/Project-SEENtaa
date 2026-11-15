@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,30 +12,17 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const FOUND_POSTS_FILE = path.join(DATA_DIR, 'found_posts.json');
 const LOST_REPORTS_FILE = path.join(DATA_DIR, 'lost_reports.json');
 const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'notifications.json');
+const CLAIMS_FILE = path.join(DATA_DIR, 'claims.json');
+const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
+const TRANSACTIONS_FILE = path.join(DATA_DIR, 'transactions.json');
+const DISPUTES_FILE = path.join(DATA_DIR, 'disputes.json');
+const FEEDBACK_FILE = path.join(DATA_DIR, 'feedback.json');
 
 import dns from 'dns';
 import { Agent, fetch as undiciFetch } from 'undici';
 import dotenv from 'dotenv';
+dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
-
-// Resilient undici Agent to ensure reliable connection to Supabase cloud endpoints
-const resilientAgent = new Agent({
-  connect: {
-    lookup: (hostname, opts, cb) => {
-      if (hostname.includes('supabase.co')) {
-        return cb(null, [{ address: '104.18.42.230', family: 4 }]);
-      }
-      dns.lookup(hostname, opts, (err, address, family) => {
-        if (err) return cb(err);
-        cb(null, [{ address, family }]);
-      });
-    }
-  }
-});
-
-const resilientFetch = (url, options = {}) => {
-  return undiciFetch(url, { ...options, dispatcher: resilientAgent });
-};
 
 // Initialize Supabase client if configured
 let supabase = null;
@@ -43,9 +31,7 @@ const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY 
 
 if (supabaseUrl && supabaseKey) {
   try {
-    supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { fetch: resilientFetch }
-    });
+    supabase = createClient(supabaseUrl, supabaseKey);
     console.log('[Database Driver] ☁️ Connected to SUPABASE Cloud Database!');
     console.log(`[Database Driver] Supabase URL: ${supabaseUrl}`);
   } catch (err) {
@@ -62,7 +48,12 @@ async function ensureLocalDataFile() {
       { path: USERS_FILE, defaultContent: [] },
       { path: FOUND_POSTS_FILE, defaultContent: [] },
       { path: LOST_REPORTS_FILE, defaultContent: [] },
-      { path: NOTIFICATIONS_FILE, defaultContent: [] }
+      { path: NOTIFICATIONS_FILE, defaultContent: [] },
+      { path: CLAIMS_FILE, defaultContent: [] },
+      { path: MESSAGES_FILE, defaultContent: [] },
+      { path: TRANSACTIONS_FILE, defaultContent: [] },
+      { path: DISPUTES_FILE, defaultContent: [] },
+      { path: FEEDBACK_FILE, defaultContent: [] }
     ];
     for (const f of files) {
       try {
@@ -995,5 +986,570 @@ export const db = {
     }
     await writeLocalJson(NOTIFICATIONS_FILE, notifs);
     return { success: true };
+  },
+
+  // =========================================================================
+  // PROOF OF OWNERSHIP CLAIMS OPERATIONS (FR-SEEN-0004, UC-004)
+  // =========================================================================
+  async getClaims(filters = {}) {
+    const { postId, claimantId, status, finderId } = filters;
+
+    if (supabase) {
+      try {
+        let query = supabase
+          .from('proof_of_ownership_claims')
+          .select('*, claimant:users(id, full_name, email, student_id, contact_number, role), post:found_item_posts(*)')
+          .order('created_at', { ascending: false });
+
+        if (postId) query = query.eq('post_id', postId);
+        if (claimantId) query = query.eq('claimant_id', claimantId);
+        if (status) query = query.eq('status', status);
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        let results = data || [];
+        if (finderId) {
+          results = results.filter((c) => c.post?.finder_id === finderId);
+        }
+        return results;
+      } catch (err) {
+        console.error('[Supabase Error] getClaims failed:', err.message);
+      }
+    }
+
+    const claims = await readLocalJson(CLAIMS_FILE);
+    const users = await this.getUsers();
+    const posts = await this.getFoundPosts();
+
+    let list = claims.map((claim) => {
+      const claimant = users.find((u) => u.id === claim.claimant_id) || null;
+      const post = posts.find((p) => p.id === claim.post_id) || null;
+      return { ...claim, claimant, post };
+    });
+
+    if (postId) list = list.filter((c) => c.post_id === postId);
+    if (claimantId) list = list.filter((c) => c.claimant_id === claimantId);
+    if (status) list = list.filter((c) => c.status === status);
+    if (finderId) list = list.filter((c) => c.post?.finder_id === finderId);
+
+    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  },
+
+  async getClaimById(id) {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('proof_of_ownership_claims')
+          .select('*, claimant:users(id, full_name, email, student_id, contact_number, role), post:found_item_posts(*)')
+          .eq('id', id)
+          .maybeSingle();
+        if (error) throw error;
+        return data;
+      } catch (err) {
+        console.error('[Supabase Error] getClaimById failed:', err.message);
+      }
+    }
+
+    const claims = await this.getClaims();
+    return claims.find((c) => c.id === id) || null;
+  },
+
+  async createClaim(claimData) {
+    const claimId = 'claim_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const newClaim = {
+      id: claimId,
+      post_id: claimData.postId || claimData.post_id,
+      claimant_id: claimData.claimantId || claimData.claimant_id,
+      proof_description: (claimData.proofDescription || claimData.proof_description || '').trim(),
+      serial_number: (claimData.serialNumber || claimData.serial_number || '').trim(),
+      status: 'UnderReview',
+      rejection_reason: null,
+      honesty_statement_agreed: true,
+      created_at: new Date().toISOString()
+    };
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('proof_of_ownership_claims')
+          .insert([newClaim])
+          .select('*, claimant:users(id, full_name, email, student_id, contact_number, role), post:found_item_posts(*)')
+          .single();
+        if (error) throw error;
+
+        // Advance post lifecycle to ClaimUnderReview
+        await this.updateFoundPostStatus(newClaim.post_id, 'ClaimUnderReview');
+
+        // Fetch post to notify the Finder
+        const post = await this.getFoundPostById(newClaim.post_id);
+        if (post && post.finder_id) {
+          await this.createNotification({
+            userId: post.finder_id,
+            title: `New Claim Submitted: ${post.item_name}`,
+            message: `A student has submitted proof of ownership for "${post.item_name}". Please review their verification answers in your dashboard.`,
+            type: 'CLAIM_SUBMITTED',
+            referenceId: claimId
+          });
+        }
+
+        return data;
+      } catch (err) {
+        console.error('[Supabase Error] createClaim failed:', err.message);
+        throw err;
+      }
+    }
+
+    const claims = await readLocalJson(CLAIMS_FILE);
+    claims.unshift(newClaim);
+    await writeLocalJson(CLAIMS_FILE, claims);
+
+    await this.updateFoundPostStatus(newClaim.post_id, 'ClaimUnderReview');
+    const post = await this.getFoundPostById(newClaim.post_id);
+    if (post && post.finder_id) {
+      await this.createNotification({
+        userId: post.finder_id,
+        title: `New Claim Submitted: ${post.item_name}`,
+        message: `A student has submitted proof of ownership for "${post.item_name}". Review details in your dashboard.`,
+        type: 'CLAIM_SUBMITTED',
+        referenceId: claimId
+      });
+    }
+
+    return newClaim;
+  },
+
+  async updateClaimStatus(id, newStatus, rejectionReason = '') {
+    if (!['Approved', 'Rejected', 'Canceled'].includes(newStatus)) {
+      throw new Error(`Invalid claim status: ${newStatus}`);
+    }
+
+    const updates = {
+      status: newStatus,
+      rejection_reason: newStatus === 'Rejected' ? rejectionReason : null,
+      reviewed_at: new Date().toISOString()
+    };
+
+    let updatedClaim = null;
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('proof_of_ownership_claims')
+          .update(updates)
+          .eq('id', id)
+          .select('*, post:found_item_posts(*)')
+          .single();
+        if (error) throw error;
+        updatedClaim = data;
+      } catch (err) {
+        console.error('[Supabase Error] updateClaimStatus failed:', err.message);
+        throw err;
+      }
+    } else {
+      const claims = await readLocalJson(CLAIMS_FILE);
+      const idx = claims.findIndex((c) => c.id === id);
+      if (idx !== -1) {
+        claims[idx] = { ...claims[idx], ...updates };
+        await writeLocalJson(CLAIMS_FILE, claims);
+        updatedClaim = claims[idx];
+      }
+    }
+
+    if (!updatedClaim) throw new Error('Claim not found.');
+
+    const postId = updatedClaim.post_id;
+    if (newStatus === 'Approved') {
+      // Advance post to CoordinatingHandover
+      await this.updateFoundPostStatus(postId, 'CoordinatingHandover');
+
+      // Reject other pending claims for this post
+      if (supabase) {
+        await supabase
+          .from('proof_of_ownership_claims')
+          .update({
+            status: 'Rejected',
+            rejection_reason: 'Item verified and claimed by another verified owner.',
+            reviewed_at: new Date().toISOString()
+          })
+          .eq('post_id', postId)
+          .eq('status', 'UnderReview')
+          .neq('id', id);
+      }
+
+      // Notify the Claimant
+      await this.createNotification({
+        userId: updatedClaim.claimant_id,
+        title: `Claim Approved! 🎉`,
+        message: `Your proof of ownership claim for "${updatedClaim.post?.item_name || 'your item'}" has been approved by the Finder! Open Meetup Chat to coordinate physical handover at an authorized Safe Zone.`,
+        type: 'CLAIM_APPROVED',
+        referenceId: id
+      });
+    } else if (newStatus === 'Rejected') {
+      // Check if there are other pending claims
+      const remainingClaims = await this.getClaims({ postId, status: 'UnderReview' });
+      if (remainingClaims.length === 0) {
+        // Revert post back to AvailableForClaim
+        await this.updateFoundPostStatus(postId, 'AvailableForClaim');
+      }
+
+      // Notify Claimant
+      await this.createNotification({
+        userId: updatedClaim.claimant_id,
+        title: `Claim Verification Update`,
+        message: `Your claim for "${updatedClaim.post?.item_name || 'an item'}" was reviewed and declined by the finder. Reason: ${rejectionReason || 'Details did not match item features.'}`,
+        type: 'CLAIM_REJECTED',
+        referenceId: id
+      });
+    }
+
+    return updatedClaim;
+  },
+
+  // =========================================================================
+  // IN-APP MESSAGES OPERATIONS (FR-SEEN-0004, Handover Meetup Chat)
+  // =========================================================================
+  async getMessages(claimId) {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*, sender:users(id, full_name, email, role, role_title)')
+          .eq('claim_id', claimId)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
+        return data || [];
+      } catch (err) {
+        console.error('[Supabase Error] getMessages failed:', err.message);
+      }
+    }
+
+    const messages = await readLocalJson(MESSAGES_FILE);
+    const users = await this.getUsers();
+    return messages
+      .filter((m) => m.claim_id === claimId)
+      .map((m) => ({ ...m, sender: users.find((u) => u.id === m.sender_id) || null }))
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  },
+
+  async createMessage(msgData) {
+    const newMsg = {
+      id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      claim_id: msgData.claimId || msgData.claim_id,
+      sender_id: msgData.senderId || msgData.sender_id,
+      message_text: (msgData.messageText || msgData.message_text || '').trim(),
+      is_read: false,
+      created_at: new Date().toISOString()
+    };
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .insert([newMsg])
+          .select('*, sender:users(id, full_name, email, role, role_title)')
+          .single();
+        if (error) throw error;
+        return data;
+      } catch (err) {
+        console.error('[Supabase Error] createMessage failed:', err.message);
+        throw err;
+      }
+    }
+
+    const messages = await readLocalJson(MESSAGES_FILE);
+    messages.push(newMsg);
+    await writeLocalJson(MESSAGES_FILE, messages);
+    return newMsg;
+  },
+
+  // =========================================================================
+  // TRANSACTION RECORDS & TURNOVER OPERATIONS (FR-SEEN-0005, UC-005)
+  // =========================================================================
+  async getTransactions(userId = null) {
+    if (supabase) {
+      try {
+        let query = supabase
+          .from('transaction_records')
+          .select('*, finder:users!finder_id(id, full_name, student_id, email), claimant:users!claimant_id(id, full_name, student_id, email), post:found_item_posts(*)')
+          .order('created_at', { ascending: false });
+
+        if (userId) {
+          query = query.or(`finder_id.eq.${userId},claimant_id.eq.${userId}`);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        return data || [];
+      } catch (err) {
+        console.error('[Supabase Error] getTransactions failed:', err.message);
+      }
+    }
+
+    const txs = await readLocalJson(TRANSACTIONS_FILE);
+    const users = await this.getUsers();
+    const posts = await this.getFoundPosts();
+
+    let list = txs.map((tx) => ({
+      ...tx,
+      finder: users.find((u) => u.id === tx.finder_id) || null,
+      claimant: users.find((u) => u.id === tx.claimant_id) || null,
+      post: posts.find((p) => p.id === tx.post_id) || null
+    }));
+
+    if (userId) {
+      list = list.filter((t) => t.finder_id === userId || t.claimant_id === userId);
+    }
+    return list;
+  },
+
+  async confirmTurnover({ postId, claimId, userId, campusLocation = 'Main Campus Lobby' }) {
+    const claim = await this.getClaimById(claimId);
+    if (!claim) throw new Error('Claim record not found.');
+
+    const finderId = claim.post?.finder_id;
+    const claimantId = claim.claimant_id;
+
+    if (userId !== finderId && userId !== claimantId) {
+      throw new Error('Unauthorized: Only the finder or verified claimant can confirm turnover.');
+    }
+
+    // Check if an existing transaction record exists
+    let txRecord = null;
+    if (supabase) {
+      const { data } = await supabase
+        .from('transaction_records')
+        .select('*')
+        .eq('post_id', postId)
+        .eq('claim_id', claimId)
+        .maybeSingle();
+      txRecord = data;
+    } else {
+      const txs = await readLocalJson(TRANSACTIONS_FILE);
+      txRecord = txs.find((t) => t.post_id === postId && t.claim_id === claimId) || null;
+    }
+
+    const isFinder = userId === finderId;
+    const now = new Date().toISOString();
+
+    if (!txRecord) {
+      // First party to confirm creates the record
+      const newTx = {
+        id: 'tx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+        post_id: postId,
+        claim_id: claimId,
+        finder_id: finderId,
+        claimant_id: claimantId,
+        campus_location: campusLocation,
+        finder_confirmed: isFinder,
+        claimant_confirmed: !isFinder,
+        finder_confirmed_at: isFinder ? now : null,
+        claimant_confirmed_at: !isFinder ? now : null,
+        completed_at: null,
+        ledger_hash: '',
+        created_at: now
+      };
+
+      if (supabase) {
+        const { data, error } = await supabase.from('transaction_records').insert([newTx]).select().single();
+        if (error) throw error;
+        txRecord = data;
+      } else {
+        const txs = await readLocalJson(TRANSACTIONS_FILE);
+        txs.unshift(newTx);
+        await writeLocalJson(TRANSACTIONS_FILE, txs);
+        txRecord = newTx;
+      }
+    } else {
+      // Second confirmation
+      const updates = {
+        campus_location: campusLocation || txRecord.campus_location
+      };
+      if (isFinder) {
+        updates.finder_confirmed = true;
+        updates.finder_confirmed_at = now;
+      } else {
+        updates.claimant_confirmed = true;
+        updates.claimant_confirmed_at = now;
+      }
+
+      // Check if both have confirmed
+      const bothConfirmed = (txRecord.finder_confirmed || isFinder) && (txRecord.claimant_confirmed || !isFinder);
+      if (bothConfirmed) {
+        updates.completed_at = now;
+        // Generate cryptographic SHA-256 signature
+        const hashPayload = `${txRecord.id}:${postId}:${finderId}:${claimantId}:${now}`;
+        updates.ledger_hash = crypto.createHash('sha256').update(hashPayload).digest('hex');
+      }
+
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('transaction_records')
+          .update(updates)
+          .eq('id', txRecord.id)
+          .select()
+          .single();
+        if (error) throw error;
+        txRecord = data;
+      } else {
+        const txs = await readLocalJson(TRANSACTIONS_FILE);
+        const idx = txs.findIndex((t) => t.id === txRecord.id);
+        if (idx !== -1) {
+          txs[idx] = { ...txs[idx], ...updates };
+          await writeLocalJson(TRANSACTIONS_FILE, txs);
+          txRecord = txs[idx];
+        }
+      }
+
+      // If finalized: advance post status to Reunited
+      if (bothConfirmed) {
+        await this.updateFoundPostStatus(postId, 'Reunited');
+
+        // Send confirmation receipt notifications to both parties
+        await this.createNotification({
+          userId: finderId,
+          title: `Item Turnover Finalized! 🤝`,
+          message: `Both parties confirmed physical handover at ${campusLocation}. Item "${claim.post?.item_name}" is safely returned. Record saved to Transaction History.`,
+          type: 'HANDOVER_CONFIRMED',
+          referenceId: txRecord.id
+        });
+
+        await this.createNotification({
+          userId: claimantId,
+          title: `Item Reunited! 🎒`,
+          message: `You and the finder have confirmed receipt of "${claim.post?.item_name}". Thank you for using Project SEENta!`,
+          type: 'HANDOVER_CONFIRMED',
+          referenceId: txRecord.id
+        });
+      }
+    }
+
+    return txRecord;
+  },
+
+  // =========================================================================
+  // DISPUTE REPORTS OPERATIONS (FR-SEEN-0006, UC-006)
+  // =========================================================================
+  async getDisputes() {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('dispute_reports')
+          .select('*, reporter:users!reported_by_user_id(id, full_name, email, student_id), post:found_item_posts(*), transaction:transaction_records(*)')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+      } catch (err) {
+        console.error('[Supabase Error] getDisputes failed:', err.message);
+      }
+    }
+
+    const disputes = await readLocalJson(DISPUTES_FILE);
+    return disputes;
+  },
+
+  async createDispute(disputeData) {
+    const disputeId = 'disp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const newDispute = {
+      id: disputeId,
+      transaction_id: disputeData.transactionId || disputeData.transaction_id,
+      post_id: disputeData.postId || disputeData.post_id,
+      reported_by_user_id: disputeData.reportedByUserId || disputeData.reported_by_user_id,
+      reason: (disputeData.reason || '').trim(),
+      evidence_description: (disputeData.evidenceDescription || disputeData.evidence_description || '').trim(),
+      status: 'Disputed',
+      created_at: new Date().toISOString()
+    };
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('dispute_reports')
+          .insert([newDispute])
+          .select('*, reporter:users!reported_by_user_id(id, full_name, email, student_id)')
+          .single();
+        if (error) throw error;
+
+        // Lock item status to Disputed
+        await this.updateFoundPostStatus(newDispute.post_id, 'Disputed');
+
+        return data;
+      } catch (err) {
+        console.error('[Supabase Error] createDispute failed:', err.message);
+        throw err;
+      }
+    }
+
+    const disputes = await readLocalJson(DISPUTES_FILE);
+    disputes.unshift(newDispute);
+    await writeLocalJson(DISPUTES_FILE, disputes);
+    await this.updateFoundPostStatus(newDispute.post_id, 'Disputed');
+    return newDispute;
+  },
+
+  // =========================================================================
+  // FEEDBACK & RATINGS OPERATIONS (FR-SEEN-0007, UC-007)
+  // =========================================================================
+  async getFeedback({ transactionId, raterId, ratedUserId } = {}) {
+    if (supabase) {
+      try {
+        let query = supabase
+          .from('feedback_ratings')
+          .select('*, rater:users!rater_id(id, full_name, role), rated:users!rated_user_id(id, full_name, role)')
+          .order('created_at', { ascending: false });
+
+        if (transactionId) query = query.eq('transaction_id', transactionId);
+        if (raterId) query = query.eq('rater_id', raterId);
+        if (ratedUserId) query = query.eq('rated_user_id', ratedUserId);
+
+        const { data, error } = await query;
+        if (error) throw error;
+        return data || [];
+      } catch (err) {
+        console.error('[Supabase Error] getFeedback failed:', err.message);
+      }
+    }
+
+    const feedbacks = await readLocalJson(FEEDBACK_FILE);
+    const users = await this.getUsers();
+    let list = feedbacks.map((fb) => ({
+      ...fb,
+      rater: users.find((u) => u.id === fb.rater_id) || null,
+      rated: users.find((u) => u.id === fb.rated_user_id) || null
+    }));
+
+    if (transactionId) list = list.filter((f) => f.transaction_id === transactionId);
+    if (raterId) list = list.filter((f) => f.rater_id === raterId);
+    if (ratedUserId) list = list.filter((f) => f.rated_user_id === ratedUserId);
+
+    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  },
+
+  async createFeedback({ transactionId, raterId, ratedUserId, rating, comments }) {
+    const feedbackId = 'fb_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const item = {
+      id: feedbackId,
+      transaction_id: transactionId,
+      rater_id: raterId,
+      rated_user_id: ratedUserId,
+      rating: Math.min(5, Math.max(1, parseInt(rating, 10) || 5)),
+      comments: (comments || '').trim(),
+      created_at: new Date().toISOString()
+    };
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('feedback_ratings').insert([item]).select().single();
+        if (error) throw error;
+        return data;
+      } catch (err) {
+        console.error('[Supabase Error] createFeedback failed:', err.message);
+        throw err;
+      }
+    }
+
+    const feedbacks = await readLocalJson(FEEDBACK_FILE);
+    feedbacks.unshift(item);
+    await writeLocalJson(FEEDBACK_FILE, feedbacks);
+    return item;
   }
 };

@@ -1,16 +1,16 @@
-﻿High Level Tech Spec - SMARTRENT DOCUMENTS .pdf
+﻿﻿High Level Tech Spec - SMARTRENT DOCUMENTS .pdf  
 High Level BRD - SMARTRENT DOCUMENTS .pdf 
 Detailed Tech Spec - SMARTRENT DOCUMENTS .pdf
 Detailed BRD - SMARTRENT DOCUMENTS .pdf
-
-
-
-
-Group 12 - GanttChart
 WBS-GanttChart
-GROUP 12 SEENta
 
 
+
+
+
+
+SEENtaGroup 12 - GanttChart
+GROUP 12 SEENta - BRD
 
 
 TO DO (OCTOBER 24 DEADLINE):
@@ -21,6 +21,8 @@ TO DO (OCTOBER 24 DEADLINE):
 * Finalize the login and registration (privacy policy, agree on terms and conditions) 
 
 
+HISTORY OR ITEM LOGS
+DISPUTE REPORTING
 
 
 
@@ -617,12 +619,12 @@ Entity-Relationship Diagram (ERD)
 	      1.  The user navigates to the registration page.
       2. The user inputs their full name, student/employee ID, contact number, and university email (@iskolarngbayan.pup.edu.ph for students or @pup.edu.ph for professors/faculty).
       3. The user submits the registration form.
-      4. 4.The system automatically validates the email input against official university domains.
+      4. The system automatically validates the email input against official university domains.
       5. The system saves the valid user account profile.
       6. A success confirmation is displayed. 
 
 
-	
+	  
 
 
 
@@ -670,9 +672,7 @@ Entity-Relationship Diagram (ERD)
 
 
 
-	
-
-
+	  
 
 
 
@@ -734,13 +734,9 @@ Entity-Relationship Diagram (ERD)
       4. The system saves the post and sets its status to "Available for Claim".
       5. The system checks the post against active lost item reports and notifies users with possible matches.
       6. A success confirmation is displayed. 
+	  
 
 
-
-
-
-
-	
 
 
 
@@ -796,7 +792,7 @@ Entity-Relationship Diagram (ERD)
 
 
 
-
+  
 
 
 
@@ -853,17 +849,13 @@ Entity-Relationship Diagram (ERD)
       5. The system saves the claim and notifies the finder.
       6. The finder reviews the form and approves or rejects the claim.
       7. The system notifies the claimant of the decision. 
+	  
 
 
 
 
 
 
-
-
-
-
-	
 
 
 
@@ -906,6 +898,7 @@ Entity-Relationship Diagram (ERD)
       5. The system updates the item status to "Returned".
       6. The system records the transaction (item, date, location, and both users' names and IDs) in each user's transaction history.
       7. The system offers an optional feedback form to both users. 
+	  
 
 
 
@@ -916,7 +909,8 @@ Entity-Relationship Diagram (ERD)
 
 
 
-	
+
+
 
 
 
@@ -954,7 +948,7 @@ Entity-Relationship Diagram (ERD)
 
 
 
-	
+	  
 
 
 
@@ -1011,6 +1005,7 @@ Entity-Relationship Diagram (ERD)
       5. The system shows the owner the claimant's name, ID, and contact details from the transaction record.
       6. The system notifies the finder and the claimant of the report.
       7. The original owner contacts the claimant to recover the item. 
+	  
 
 
 
@@ -1021,7 +1016,16 @@ Entity-Relationship Diagram (ERD)
 
 
 
-	
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1702,7 +1706,7 @@ ________________
 
 
 004: Decision to Use Supabase Storage for Item Photos and Attachments
-Status: Proposed
+Status: Accepted
 Context:
 Users need to upload photographs of lost or found items and supporting evidence for ownership claims and dispute reports. Storing image files directly in database records would mix file storage with structured application data.
 Decision:
@@ -1774,7 +1778,7 @@ ________________
 
 
 010: Decision to Maintain Transaction History and Audit Records
-Status: Proposed
+Status: Accept
 Context:
 SEENta needs a reliable record of claim decisions, handover confirmations, status changes, and dispute-related actions. Historical records may be needed to clarify disagreements between users.
 Decision:
