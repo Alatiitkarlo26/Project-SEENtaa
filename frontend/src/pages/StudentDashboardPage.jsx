@@ -35,7 +35,9 @@ import {
   ShieldAlert,
   History,
   Star,
-  Download
+  Download,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import ScrollReveal from '../components/ScrollReveal';
 import { ItemCardSkeleton, LostReportCardSkeleton } from '../components/Skeleton';
@@ -191,13 +193,52 @@ export default function StudentDashboardPage() {
     (user?.full_name?.includes(',') ? user.full_name.split(',')[1]?.trim() : user?.full_name?.split(' ')[0]) ||
     'Iskolar';
   const myFoundCount = foundItems.filter((i) => i.finder_id === user?.id).length;
-  const totalClaimsCount = claimsOnMyPosts.length + mySubmittedClaims.length;
+
+  // Helper to determine if a claim's item has completed turnover
+  const isClaimFinalized = useCallback(
+    (claim) => {
+      if (!claim) return false;
+      const postId = claim.post_id || claim.post?.id;
+      if (claim.post?.status === 'Reunited' || claim.status === 'Completed' || claim.status === 'Finalized') {
+        return true;
+      }
+      return transactions.some(
+        (tx) =>
+          (tx.claim_id === claim.id || (postId && tx.post_id === postId)) &&
+          (tx.completed_at || tx.ledger_hash)
+      );
+    },
+    [transactions]
+  );
+
+  // Active incoming claims on items user found (excluding finalized & rejected)
+  const activeIncomingClaims = claimsOnMyPosts.filter(
+    (c) => c.status !== 'Rejected' && !isClaimFinalized(c)
+  );
+
+  // Active outgoing claims user submitted (excluding finalized & rejected)
+  const activeMySubmittedClaims = mySubmittedClaims.filter(
+    (c) => c.status !== 'Rejected' && !isClaimFinalized(c)
+  );
+
+  // Separate list for all declined / rejected claims
+  const rejectedClaims = [
+    ...claimsOnMyPosts.filter((c) => c.status === 'Rejected').map((c) => ({ ...c, direction: 'incoming' })),
+    ...mySubmittedClaims.filter((c) => c.status === 'Rejected').map((c) => ({ ...c, direction: 'outgoing' }))
+  ];
+
+  // Finalized transactions list
+  const finalizedTransactions = transactions.filter(
+    (t) => t.completed_at || t.ledger_hash || t.post?.status === 'Reunited'
+  );
+
+  const totalActiveClaimsCount = activeIncomingClaims.length + activeMySubmittedClaims.length;
 
   const tabs = [
     { key: 'campus-feed', label: 'Campus Feed', count: foundItems.length },
     { key: 'my-found', label: 'My Posts', count: myFoundCount },
     { key: 'my-lost', label: 'My Reports', count: lostReports.length },
-    { key: 'claims-meetups', label: 'Claims & Meetups', count: totalClaimsCount }
+    { key: 'claims-meetups', label: 'Claims & Meetups', count: totalActiveClaimsCount }
   ];
 
   const handleApproveClaim = (claimId) => {
@@ -718,28 +759,28 @@ export default function StudentDashboardPage() {
         ) : activeTab === 'claims-meetups' ? (
           /* ================= CLAIMS & MEETUPS WORKFLOW ================= */
           <div className="mt-4 space-y-8">
-            {/* 1. Incoming Claims on Items You Found */}
+            {/* 1. Active Incoming Claims on Items You Found */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>Claims on Items You Found</span>
+                    <span>Active Claims on Items You Found</span>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-semibold">
-                      {claimsOnMyPosts.length}
+                      {activeIncomingClaims.length}
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Review submitted proofs of ownership and approve or decline them.
+                    Review submitted proofs of ownership and coordinate in-person return.
                   </p>
                 </div>
               </div>
 
-              {claimsOnMyPosts.length > 0 ? (
+              {activeIncomingClaims.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {claimsOnMyPosts.map((claim) => (
+                  {activeIncomingClaims.map((claim) => (
                     <div
                       key={claim.id}
-                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4"
+                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4 shadow-2xs"
                     >
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -750,12 +791,10 @@ export default function StudentDashboardPage() {
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               claim.status === 'Approved'
                                 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : claim.status === 'Rejected'
-                                ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
                                 : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                             }`}
                           >
-                            {claim.status}
+                            {claim.status === 'UnderReview' ? 'Pending Your Review' : claim.status}
                           </span>
                         </div>
 
@@ -798,45 +837,43 @@ export default function StudentDashboardPage() {
                               setActiveChatClaim(claim);
                               setShowChatModal(true);
                             }}
-                            className="px-4 py-1.5 rounded-full bg-theme hover:bg-theme-hover text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                            className="px-4 py-1.5 rounded-full bg-theme hover:bg-theme-hover text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
                             <span>Meetup Chat &amp; Handover</span>
                           </button>
-                        ) : (
-                          <span className="text-[11px] text-red-500 italic">Declined: {claim.rejection_reason}</span>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center text-xs text-slate-500">
-                  No claims currently submitted on items you found.
+                  No active claims currently waiting on items you found.
                 </div>
               )}
             </div>
 
-            {/* 2. Claims You Submitted on Other Items */}
+            {/* 2. Your Active Claims on Found Belongings */}
             <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Your Claims on Found Belongings</span>
+                  <span>Your Active Claims on Found Belongings</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-semibold">
-                    {mySubmittedClaims.length}
+                    {activeMySubmittedClaims.length}
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Track verification status of items you claimed.
+                  Track ongoing claims awaiting finder review or safe-zone meetup.
                 </p>
               </div>
 
-              {mySubmittedClaims.length > 0 ? (
+              {activeMySubmittedClaims.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {mySubmittedClaims.map((claim) => (
+                  {activeMySubmittedClaims.map((claim) => (
                     <div
                       key={claim.id}
-                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4"
+                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4 shadow-2xs"
                     >
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -847,8 +884,6 @@ export default function StudentDashboardPage() {
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               claim.status === 'Approved'
                                 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : claim.status === 'Rejected'
-                                ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
                                 : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                             }`}
                           >
@@ -873,7 +908,7 @@ export default function StudentDashboardPage() {
                               setActiveChatClaim(claim);
                               setShowChatModal(true);
                             }}
-                            className="px-4 py-1.5 rounded-full bg-theme hover:bg-theme-hover text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                            className="px-4 py-1.5 rounded-full bg-theme hover:bg-theme-hover text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
                             <span>Meetup Chat &amp; Handover</span>
@@ -885,22 +920,88 @@ export default function StudentDashboardPage() {
                 </div>
               ) : (
                 <div className="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center text-xs text-slate-500">
-                  You haven&apos;t filed any claims yet.
+                  You have no pending or active claims in progress.
                 </div>
               )}
             </div>
 
-            {/* 3. Completed Turnover History */}
-            {transactions.length > 0 && (
-              <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* 3. Declined & Rejected Claims (Separate Dedicated Section) */}
+            {rejectedClaims.length > 0 && (
+              <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <History className="w-4 h-4 text-emerald-600" />
-                    <span>Finalized Handover History &amp; Audit Log</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
-                      {transactions.length}
+                    <XCircle className="w-4 h-4 text-rose-500" />
+                    <span>Declined &amp; Rejected Claims</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-semibold">
+                      {rejectedClaims.length}
                     </span>
                   </h3>
+                  <p className="text-xs text-slate-500">
+                    Claims where identifying features did not match the physical item.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {rejectedClaims.map((claim) => (
+                    <div
+                      key={claim.id}
+                      className="p-5 rounded-2xl border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/20 dark:bg-rose-950/20 flex flex-col justify-between space-y-3"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-sm font-bold text-slate-900 dark:text-white">
+                              {claim.post?.item_name || 'Claimed Item'}
+                            </span>
+                            <span className="block text-[10px] text-slate-400">
+                              {claim.direction === 'incoming' ? 'Submitted by student on your found item' : 'Claim you submitted'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 uppercase">
+                            Declined
+                          </span>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-900/40 text-xs space-y-1">
+                          <span className="font-semibold text-rose-700 dark:text-rose-400">Reason for Declining:</span>
+                          <p className="italic text-slate-700 dark:text-slate-300">
+                            &quot;{claim.rejection_reason || 'Details did not match physical item features.'}&quot;
+                          </p>
+                        </div>
+
+                        {claim.proof_description && (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Submitted Proof: <span className="italic">&quot;{claim.proof_description}&quot;</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-rose-100 dark:border-rose-900/30 flex items-center justify-between text-[10px] text-slate-400">
+                        <span>{new Date(claim.reviewed_at || claim.created_at).toLocaleDateString()}</span>
+                        <span className="font-medium text-slate-500">Handover Closed</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 4. Finalized Handover History & Audit Log (No Duplication) */}
+            {finalizedTransactions.length > 0 && (
+              <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <History className="w-4 h-4 text-emerald-600" />
+                      <span>Finalized Handover History &amp; Audit Log</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-semibold">
+                        {finalizedTransactions.length}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Completed physical handovers finalized at campus safe zones. Handover chats are permanently completed and closed.
+                    </p>
+                  </div>
 
                   {/* Export Audit Log Actions */}
                   <div className="flex items-center gap-2">
@@ -926,7 +1027,7 @@ export default function StudentDashboardPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {transactions.map((tx) => (
+                  {finalizedTransactions.map((tx) => (
                     <div
                       key={tx.id}
                       className="p-5 rounded-2xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 text-xs space-y-3"
@@ -935,7 +1036,7 @@ export default function StudentDashboardPage() {
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
                           {tx.post?.item_name || 'Returned Item'}
                         </span>
-                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full">
                           Reunited
                         </span>
                       </div>
@@ -948,7 +1049,7 @@ export default function StudentDashboardPage() {
                         </div>
                       </div>
                       <div className="text-[11px] text-slate-500 font-mono bg-white/70 dark:bg-slate-900/60 p-2 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                        Ledger Signature: {tx.ledger_hash ? `${tx.ledger_hash.slice(0, 20)}...` : 'Pending'}
+                        Ledger Signature: {tx.ledger_hash ? `${tx.ledger_hash.slice(0, 20)}...` : 'Verified'}
                       </div>
                       <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-900/30 flex items-center justify-between">
                         <span className="text-[10px] text-slate-400">
