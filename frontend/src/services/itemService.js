@@ -57,6 +57,10 @@ export const itemService = {
     return data.item;
   },
 
+  async getFoundItemById(id) {
+    return this.getFoundPostById(id);
+  },
+
   async createFoundPost(postData, photoUrls = []) {
     const res = await fetch(`${API_URL}/items/found`, {
       method: 'POST',

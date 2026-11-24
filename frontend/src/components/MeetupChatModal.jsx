@@ -47,7 +47,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
         }).catch(() => {});
 
         if (postId) {
-          itemService.getFoundItemById(postId).then((p) => {
+          itemService.getFoundPostById(postId).then((p) => {
             if (p && p.status === 'Reunited') {
               setIsTurnoverCompleted(true);
             }
@@ -71,10 +71,10 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
 
   if (!isOpen || !claim) return null;
 
-  const isFinder = user?.id === claim.post?.finder_id;
+  const isFinder = user?.id === claim?.post?.finder_id;
   const otherPartyName = isFinder
-    ? claim.claimant?.full_name || 'Claimant'
-    : claim.post?.finder?.full_name || 'Finder';
+    ? claim?.claimant?.full_name || 'Claimant'
+    : claim?.post?.finder?.full_name || 'Finder';
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -83,8 +83,10 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
     const text = inputText.trim();
     setInputText('');
     try {
-      const sent = await itemService.sendMessage(claim.id, user.id, text);
-      setMessages((prev) => [...prev, { ...sent, sender: user }]);
+      const sent = await itemService.sendMessage(claim.id, user?.id, text);
+      if (sent) {
+        setMessages((prev) => [...prev, { ...sent, sender: user }]);
+      }
     } catch (err) {
       console.error('Failed to send message:', err);
       showAlert({ title: 'Message Error', message: 'Failed to deliver message. Please retry.', type: 'error' });
@@ -94,7 +96,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
   const handleConfirmTurnover = () => {
     showConfirm({
       title: 'Finalize Mutual Turnover',
-      message: `Are you currently meeting with ${otherPartyName} at "${selectedZone}" and ready to confirm the physical handover of "${claim.post?.item_name || 'this item'}"?\n\nThis single click will permanently mark the item as Reunited and issue an official cryptographic ledger record.`,
+      message: `Are you currently meeting with ${otherPartyName} at "${selectedZone}" and ready to confirm the physical handover of "${claim?.post?.item_name || 'this item'}"?\n\nThis single click will permanently mark the item as Reunited and issue an official cryptographic ledger record.`,
       confirmText: 'Yes, Finalize Turnover',
       cancelText: 'Cancel',
       type: 'success',
@@ -102,9 +104,9 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
         setConfirming(true);
         try {
           const tx = await itemService.confirmTurnover({
-            postId: claim.post_id,
+            postId: claim?.post_id || claim?.post?.id,
             claimId: claim.id,
-            userId: user.id,
+            userId: user?.id,
             campusLocation: selectedZone
           });
           setIsTurnoverCompleted(true);
@@ -139,7 +141,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
                 </span>
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Item: <strong>{claim.post?.item_name}</strong>
+                Item: <strong>{claim?.post?.item_name || 'Found Item'}</strong>
               </p>
             </div>
           </div>
@@ -187,7 +189,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
               return (
                 <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                   <span className="text-[10px] text-slate-400 mb-0.5 px-1">
-                    {isMe ? 'You' : m.sender?.full_name || otherPartyName} • {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {isMe ? 'You' : m.sender?.full_name || otherPartyName} {m.created_at ? `• ${new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
                   </span>
                   <div
                     className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed break-words break-all overflow-hidden ${
