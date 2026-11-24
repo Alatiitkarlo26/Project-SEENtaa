@@ -123,11 +123,29 @@ export default function AdminDashboardPage() {
 
   // Open Contact User Modal
   const openContactModal = (target, item = null, defaultNotice = 'Administrative Inquiry') => {
-    setTargetUser(target);
+    let actualTarget = target;
+    if (!actualTarget?.id) {
+      const targetUserId = item?.user_id || item?.userId || item?.reported_by_user_id || item?.finder_id;
+      if (targetUserId) {
+        actualTarget = (overview?.users || []).find((u) => u.id === targetUserId) || actualTarget;
+      }
+    }
+
+    setTargetUser(actualTarget || null);
     setReferenceItem(item);
     setNoticeType(defaultNotice);
-    setNoticeSubject(`[PUP Biñan Campus Security] ${defaultNotice}${item?.item_name ? ` - Item: ${item.item_name}` : ''}`);
-    setNoticeMessage(`Greetings,\n\nThis is an official administrative notice from the PUP Biñan Campus Security Office regarding ${item ? `"${item.item_name}"` : 'a campus lost-and-found inquiry'}.\n\nPlease coordinate with the Campus Security Desk on the Ground Floor at your earliest convenience.`);
+    const itemName = item?.item_name ? ` - Item: "${item.item_name}"` : '';
+    setNoticeSubject(`[PUP Biñan Campus Security] ${defaultNotice}${itemName}`);
+
+    if (item?.last_known_location || defaultNotice.includes('Inquiry')) {
+      setNoticeMessage(
+        `Mabuhay,\n\nThis is an official administrative notice from the PUP Biñan Campus Security Office regarding your lost item report for "${item?.item_name || 'your reported belonging'}" (Report Date: ${item?.created_at ? new Date(item.created_at).toLocaleDateString() : 'Recent'}).\n\nPlease visit the Campus Security Desk on the Ground Floor or check your SEENta portal for matched items and handover coordination.\n\nOffice of Campus Security\nPolytechnic University of the Philippines — Biñan Campus`
+      );
+    } else {
+      setNoticeMessage(
+        `Mabuhay,\n\nThis is an official administrative notice from the PUP Biñan Campus Security Office regarding ${item ? `"${item.item_name}"` : 'a campus lost-and-found inquiry'}.\n\nPlease coordinate with the Campus Security Desk on the Ground Floor at your earliest convenience.\n\nOffice of Campus Security\nPolytechnic University of the Philippines — Biñan Campus`
+      );
+    }
     setContactModalOpen(true);
   };
 
@@ -451,62 +469,68 @@ export default function AdminDashboardPage() {
               .filter((p) => {
                 if (!searchQuery) return true;
                 const q = searchQuery.toLowerCase();
+                const finderUser = p.finder || p.user || (overview?.users || []).find((u) => u.id === (p.finder_id || p.finderId));
+                const finderName = finderUser?.full_name || finderUser?.fullName || '';
                 return (
                   p.item_name?.toLowerCase().includes(q) ||
                   p.category?.toLowerCase().includes(q) ||
                   p.location_found?.toLowerCase().includes(q) ||
-                  p.finder?.full_name?.toLowerCase().includes(q)
+                  finderName.toLowerCase().includes(q)
                 );
               })
-              .map((p) => (
-                <div
-                  key={p.id}
-                  className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-3"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1">
-                        {p.item_name}
+              .map((p) => {
+                const finderUser = p.finder || p.user || (overview?.users || []).find((u) => u.id === (p.finder_id || p.finderId));
+                const finderName = finderUser?.full_name || finderUser?.fullName || 'Student Finder';
+                return (
+                  <div
+                    key={p.id}
+                    className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-3"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1">
+                          {p.item_name}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            p.status === 'Reunited'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : p.status === 'UnderReview'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                          }`}
+                        >
+                          {p.status}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-500 line-clamp-2">
+                        {p.description || 'No description provided.'}
+                      </p>
+
+                      <div className="text-[11px] text-slate-400 space-y-0.5 pt-1">
+                        <div>Category: <strong>{p.category}</strong></div>
+                        <div>Found at: <strong>{p.location_found || 'Campus Grounds'}</strong></div>
+                        <div>Finder: <strong>{finderName}</strong> {finderUser?.student_id ? `(${finderUser.student_id})` : ''}</div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {new Date(p.created_at).toLocaleDateString()}
                       </span>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          p.status === 'Reunited'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : p.status === 'UnderReview'
-                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                        }`}
+                      <button
+                        type="button"
+                        onClick={() => openContactModal(finderUser, p, 'Safe-Exchange Custody Verification')}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-theme hover:text-white text-slate-700 dark:text-slate-300 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
                       >
-                        {p.status}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-500 line-clamp-2">
-                      {p.description || 'No description provided.'}
-                    </p>
-
-                    <div className="text-[11px] text-slate-400 space-y-0.5 pt-1">
-                      <div>Category: <strong>{p.category}</strong></div>
-                      <div>Found at: <strong>{p.location_found}</strong></div>
-                      <div>Finder: <strong>{p.finder?.full_name || 'Student Finder'}</strong></div>
+                        <Mail className="w-3 h-3" />
+                        <span>Contact Finder</span>
+                      </button>
                     </div>
                   </div>
-
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {new Date(p.created_at).toLocaleDateString()}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => openContactModal(p.finder, p, 'Safe-Exchange Custody Verification')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-theme hover:text-white text-slate-700 dark:text-slate-300 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Mail className="w-3 h-3" />
-                      <span>Contact Finder</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </div>
       )}
@@ -522,60 +546,68 @@ export default function AdminDashboardPage() {
               .filter((r) => {
                 if (!searchQuery) return true;
                 const q = searchQuery.toLowerCase();
+                const reporterUser = r.reporter || r.user || (overview?.users || []).find((u) => u.id === (r.user_id || r.userId));
+                const reporterName = reporterUser?.full_name || reporterUser?.fullName || '';
+                const locationText = r.last_known_location || r.last_seen_location || '';
                 return (
                   r.item_name?.toLowerCase().includes(q) ||
                   r.category?.toLowerCase().includes(q) ||
-                  r.last_seen_location?.toLowerCase().includes(q) ||
-                  r.user?.full_name?.toLowerCase().includes(q)
+                  locationText.toLowerCase().includes(q) ||
+                  reporterName.toLowerCase().includes(q)
                 );
               })
-              .map((r) => (
-                <div
-                  key={r.id}
-                  className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-3"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1">
-                        {r.item_name}
+              .map((r) => {
+                const reporterUser = r.reporter || r.user || (overview?.users || []).find((u) => u.id === (r.user_id || r.userId));
+                const reporterName = reporterUser?.full_name || reporterUser?.fullName || 'Student Reporter';
+                const locationText = r.last_known_location || r.last_seen_location || 'Campus Grounds';
+                return (
+                  <div
+                    key={r.id}
+                    className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-3"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1">
+                          {r.item_name}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            r.status === 'Resolved'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                          }`}
+                        >
+                          {r.status || 'Active'}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-500 line-clamp-2">
+                        {r.description || 'No description provided.'}
+                      </p>
+
+                      <div className="text-[11px] text-slate-400 space-y-0.5 pt-1">
+                        <div>Category: <strong>{r.category}</strong></div>
+                        <div>Last seen: <strong>{locationText}</strong></div>
+                        <div>Reporter: <strong>{reporterName}</strong> {reporterUser?.student_id ? `(${reporterUser.student_id})` : ''}</div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {new Date(r.created_at).toLocaleDateString()}
                       </span>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          r.status === 'Resolved'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                        }`}
+                      <button
+                        type="button"
+                        onClick={() => openContactModal(reporterUser, r, 'Official Campus Security Inquiry')}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-theme hover:text-white text-slate-700 dark:text-slate-300 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
                       >
-                        {r.status || 'Active'}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-500 line-clamp-2">
-                      {r.description || 'No description provided.'}
-                    </p>
-
-                    <div className="text-[11px] text-slate-400 space-y-0.5 pt-1">
-                      <div>Category: <strong>{r.category}</strong></div>
-                      <div>Last seen: <strong>{r.last_seen_location}</strong></div>
-                      <div>Reporter: <strong>{r.user?.full_name || 'Student Reporter'}</strong></div>
+                        <Mail className="w-3 h-3" />
+                        <span>Contact Reporter</span>
+                      </button>
                     </div>
                   </div>
-
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {new Date(r.created_at).toLocaleDateString()}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => openContactModal(r.user, r, 'Official Campus Security Inquiry')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-theme hover:text-white text-slate-700 dark:text-slate-300 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Mail className="w-3 h-3" />
-                      <span>Contact Reporter</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </div>
       )}
@@ -668,6 +700,48 @@ export default function AdminDashboardPage() {
             </div>
 
             <form onSubmit={handleSendNotice} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Recipient Student / User <span className="text-red-500">*</span>
+                </label>
+                {targetUser?.id ? (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs">
+                    <div>
+                      <div className="font-bold text-slate-900 dark:text-white">
+                        {targetUser.full_name || targetUser.fullName || 'Student'}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {targetUser.email} {targetUser.student_id ? `• Student ID: ${targetUser.student_id}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTargetUser(null)}
+                      className="text-xs text-theme hover:underline font-semibold cursor-pointer"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={targetUser?.id || ''}
+                    onChange={(e) => {
+                      const u = (overview?.users || []).find((x) => x.id === e.target.value);
+                      setTargetUser(u || null);
+                    }}
+                    required
+                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-theme/30"
+                  >
+                    <option value="">-- Select a registered student or staff member --</option>
+                    {(overview?.users || []).map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name || u.fullName} ({u.email}) {u.student_id ? `[${u.student_id}]` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Notice Type
