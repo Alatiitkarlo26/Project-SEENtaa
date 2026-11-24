@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { SystemDialogProvider } from './context/SystemDialogContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import AuthPage from './pages/AuthPage';
@@ -23,22 +24,36 @@ function MainContent() {
       setPolicyInitialTab(subTab);
     }
     setActiveTab(tab);
+    if (tab === 'admin-dashboard') {
+      window.history.replaceState(null, '', '/admin');
+    } else {
+      window.history.replaceState(null, '', '/');
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Support direct hash navigation (e.g. #404, #privacy, #terms)
+  // Support direct route & hash navigation (e.g. /admin, #admin, #privacy, #terms)
   useEffect(() => {
-    const handleHash = () => {
-      const hash = window.location.hash.replace(/^#\/?/, '');
-      if (hash === '404' || hash === 'not-found') {
+    const handleLocation = () => {
+      const pathname = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+      if (pathname.includes('/admin') || hash === 'admin' || hash === '/admin') {
+        setActiveTab('admin-dashboard');
+      } else if (hash === '404' || hash === 'not-found') {
         setActiveTab('not-found');
       } else if (hash === 'privacy' || hash === 'terms') {
         handleNavigate('privacy-terms', hash);
+      } else if (hash === 'about' || hash === 'about-us') {
+        setActiveTab('about-us');
       }
     };
-    handleHash();
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
+    handleLocation();
+    window.addEventListener('hashchange', handleLocation);
+    window.addEventListener('popstate', handleLocation);
+    return () => {
+      window.removeEventListener('hashchange', handleLocation);
+      window.removeEventListener('popstate', handleLocation);
+    };
   }, []);
 
   if (loading) {
@@ -47,11 +62,16 @@ function MainContent() {
 
   // If user is not authenticated, render the centered AuthPage with smooth transitions
   if (!isAuthenticated) {
+    const isAdminRoute = window.location.pathname.toLowerCase().includes('/admin') || window.location.hash.toLowerCase().includes('admin');
     return (
       <AuthPage
         defaultView="login"
+        isAdminInitial={isAdminRoute}
         onAuthSuccess={(loggedUser) => {
           setActiveTab(loggedUser.role === 'admin' ? 'admin-dashboard' : 'student-dashboard');
+          if (loggedUser.role === 'admin') {
+            window.history.replaceState(null, '', '/admin');
+          }
         }}
       />
     );
@@ -69,11 +89,11 @@ function MainContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-600 selection:text-white transition-colors duration-200">
-      <Navbar activeTab={currentTab} setActiveTab={setActiveTab} />
+      <Navbar activeTab={currentTab} setActiveTab={handleNavigate} />
 
       <main className="flex-1">
         {currentTab === 'student-dashboard' && (
-          <StudentDashboardPage onNavigateToTab={setActiveTab} />
+          <StudentDashboardPage onNavigateToTab={handleNavigate} />
         )}
 
         {currentTab === 'admin-dashboard' && (
@@ -83,7 +103,7 @@ function MainContent() {
         {currentTab === 'about-us' && (
           <AboutUsPage
             onNavigateBack={() =>
-              setActiveTab(role === 'admin' ? 'admin-dashboard' : 'student-dashboard')
+              handleNavigate(role === 'admin' ? 'admin-dashboard' : 'student-dashboard')
             }
           />
         )}
@@ -92,7 +112,7 @@ function MainContent() {
           <PrivacyTermsPage
             initialTab={policyInitialTab}
             onNavigateBack={() =>
-              setActiveTab(role === 'admin' ? 'admin-dashboard' : 'student-dashboard')
+              handleNavigate(role === 'admin' ? 'admin-dashboard' : 'student-dashboard')
             }
           />
         )}
@@ -116,7 +136,9 @@ export default function App() {
   return (
     <AuthProvider>
       <ThemeProvider>
-        <MainContent />
+        <SystemDialogProvider>
+          <MainContent />
+        </SystemDialogProvider>
       </ThemeProvider>
     </AuthProvider>
   );

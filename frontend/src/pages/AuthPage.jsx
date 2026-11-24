@@ -18,7 +18,7 @@ import {
   Moon
 } from 'lucide-react';
 
-export default function AuthPage({ defaultView = 'login', onAuthSuccess }) {
+export default function AuthPage({ defaultView = 'login', onAuthSuccess, isAdminInitial = false }) {
   const { login, register } = useAuth();
   const { isDark, toggleMode } = useTheme();
   const [view, setView] = useState(defaultView); // 'login' | 'register'
@@ -27,10 +27,10 @@ export default function AuthPage({ defaultView = 'login', onAuthSuccess }) {
   // Password visibility toggle
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
-  // Login Form State
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [loginAgreeTerms, setLoginAgreeTerms] = useState(false);
+  // Login Form State (prefill if admin route is requested)
+  const [loginEmail, setLoginEmail] = useState(isAdminInitial ? 'security.binan@pup.edu.ph' : '');
+  const [loginPassword, setLoginPassword] = useState(isAdminInitial ? 'admin123' : '');
+  const [loginAgreeTerms, setLoginAgreeTerms] = useState(isAdminInitial ? true : false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -254,6 +254,12 @@ export default function AuthPage({ defaultView = 'login', onAuthSuccess }) {
             <div className="w-full max-w-[390px] sm:max-w-[410px] mx-auto font-sans">
               {/* Header */}
               <div className="text-center mb-7 sm:mb-8 md:mb-9">
+                {isAdminInitial ? (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold mb-3 shadow-2xs">
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Campus Security Portal (/admin)</span>
+                  </div>
+                ) : null}
                 <h1 className="text-2xl sm:text-[32px] font-bold text-black dark:text-white tracking-tight leading-tight">
                   Welcome to{' '}
                   <span className="inline-flex items-baseline">
@@ -262,7 +268,9 @@ export default function AuthPage({ defaultView = 'login', onAuthSuccess }) {
                   </span>
                 </h1>
                 <p className="mt-1.5 text-xs sm:text-[13px] text-neutral-500 dark:text-slate-400 max-w-xs mx-auto leading-relaxed">
-                  Enter your PUP webmail to begin your search. SEENta&apos;s got your back.
+                  {isAdminInitial
+                    ? 'Official Campus Security administrative access for dispute arbitration and inventory auditing.'
+                    : 'Enter your PUP webmail to begin your search. SEENta\'s got your back.'}
                 </p>
               </div>
 

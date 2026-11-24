@@ -1328,11 +1328,18 @@ export const db = {
       txRecord = txs.find((t) => t.post_id === postId && t.claim_id === claimId) || null;
     }
 
-    const isFinder = userId === finderId;
+    // If transaction is already completed, return it immediately (idempotent 1-click turnover)
+    if (txRecord && txRecord.completed_at && txRecord.ledger_hash) {
+      await this.updateFoundPostStatus(postId, 'Reunited');
+      return txRecord;
+    }
+
     const now = new Date().toISOString();
+    const hashPayload = `${txRecord?.id || ('tx_' + Date.now())}:${postId}:${finderId}:${claimantId}:${now}`;
+    const ledgerHash = crypto.createHash('sha256').update(hashPayload).digest('hex');
 
     if (!txRecord) {
-      // First party to confirm creates the record
+      // 1-Click Mutual Turnover Completion: Finalize transaction immediately
       const newTx = {
         id: 'tx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
         post_id: postId,
@@ -1340,12 +1347,12 @@ export const db = {
         finder_id: finderId,
         claimant_id: claimantId,
         campus_location: campusLocation,
-        finder_confirmed: isFinder,
-        claimant_confirmed: !isFinder,
-        finder_confirmed_at: isFinder ? now : null,
-        claimant_confirmed_at: !isFinder ? now : null,
-        completed_at: null,
-        ledger_hash: '',
+        finder_confirmed: true,
+        claimant_confirmed: true,
+        finder_confirmed_at: now,
+        claimant_confirmed_at: now,
+        completed_at: now,
+        ledger_hash: ledgerHash,
         created_at: now
       };
 
@@ -1360,26 +1367,16 @@ export const db = {
         txRecord = newTx;
       }
     } else {
-      // Second confirmation
+      // Finalize existing pending transaction record
       const updates = {
-        campus_location: campusLocation || txRecord.campus_location
+        campus_location: campusLocation || txRecord.campus_location,
+        finder_confirmed: true,
+        claimant_confirmed: true,
+        finder_confirmed_at: txRecord.finder_confirmed_at || now,
+        claimant_confirmed_at: txRecord.claimant_confirmed_at || now,
+        completed_at: now,
+        ledger_hash: txRecord.ledger_hash || ledgerHash
       };
-      if (isFinder) {
-        updates.finder_confirmed = true;
-        updates.finder_confirmed_at = now;
-      } else {
-        updates.claimant_confirmed = true;
-        updates.claimant_confirmed_at = now;
-      }
-
-      // Check if both have confirmed
-      const bothConfirmed = (txRecord.finder_confirmed || isFinder) && (txRecord.claimant_confirmed || !isFinder);
-      if (bothConfirmed) {
-        updates.completed_at = now;
-        // Generate cryptographic SHA-256 signature
-        const hashPayload = `${txRecord.id}:${postId}:${finderId}:${claimantId}:${now}`;
-        updates.ledger_hash = crypto.createHash('sha256').update(hashPayload).digest('hex');
-      }
 
       if (supabase) {
         const { data, error } = await supabase
@@ -1399,29 +1396,30 @@ export const db = {
           txRecord = txs[idx];
         }
       }
-
-      // If finalized: advance post status to Reunited
-      if (bothConfirmed) {
-        await this.updateFoundPostStatus(postId, 'Reunited');
-
-        // Send confirmation receipt notifications to both parties
-        await this.createNotification({
-          userId: finderId,
-          title: `Item Turnover Finalized! 🤝`,
-          message: `Both parties confirmed physical handover at ${campusLocation}. Item "${claim.post?.item_name}" is safely returned. Record saved to Transaction History.`,
-          type: 'HANDOVER_CONFIRMED',
-          referenceId: txRecord.id
-        });
-
-        await this.createNotification({
-          userId: claimantId,
-          title: `Item Reunited! 🎒`,
-          message: `You and the finder have confirmed receipt of "${claim.post?.item_name}". Thank you for using Project SEENta!`,
-          type: 'HANDOVER_CONFIRMED',
-          referenceId: txRecord.id
-        });
-      }
     }
+
+    // Update found post status to Reunited
+    await this.updateFoundPostStatus(postId, 'Reunited');
+
+    // Send confirmation receipt notifications to both parties
+    await this.createNotification({
+      userId: finderId,
+      title: `Item Turnover Finalized! 🤝`,
+      message: `Physical handover at ${campusLocation} confirmed. Item "${claim.post?.item_name || 'Item'}" is officially marked Reunited. Cryptographic signature generated.`,
+      type: 'HANDOVER_CONFIRMED',
+      referenceId: txRecord.id
+    });
+
+    await this.createNotification({
+      userId: claimantId,
+      title: `Item Reunited! 🎒`,
+      message: `Mutual turnover for "${claim.post?.item_name || 'Item'}" finalized at ${campusLocation}. Thank you for using Project SEENta!`,
+      type: 'HANDOVER_CONFIRMED',
+      referenceId: txRecord.id
+    });
+
+    return txRecord;
+  },
 
     return txRecord;
   },
@@ -1449,11 +1447,78 @@ export const db = {
 
   async createDispute(disputeData) {
     const disputeId = 'disp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const postId = disputeData.postId || disputeData.post_id;
+    const reportedByUserId = disputeData.reportedByUserId || disputeData.reported_by_user_id;
+    let transactionId = disputeData.transactionId || disputeData.transaction_id;
+
+    if (!transactionId && supabase) {
+      // 1. Try to find an existing transaction for this post
+      const { data: existingTx } = await supabase
+        .from('transaction_records')
+        .select('id')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingTx?.id) {
+        transactionId = existingTx.id;
+      } else {
+        // 2. Find post and claims to ensure referential integrity
+        const post = await this.getFoundPostById(postId);
+        const { data: existingClaims } = await supabase
+          .from('proof_of_ownership_claims')
+          .select('id, claimant_id')
+          .eq('post_id', postId)
+          .limit(1);
+
+        let claimId = existingClaims?.[0]?.id;
+        let claimantId = existingClaims?.[0]?.claimant_id || reportedByUserId;
+
+        if (!claimId) {
+          claimId = 'claim_disp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+          await supabase.from('proof_of_ownership_claims').insert([{
+            id: claimId,
+            post_id: postId,
+            claimant_id: reportedByUserId,
+            proof_description: (disputeData.reason || 'Disputed ownership claim').trim(),
+            status: 'UnderReview',
+            honesty_statement_agreed: true,
+            created_at: new Date().toISOString()
+          }]);
+        }
+
+        const now = new Date().toISOString();
+        const newTxId = 'tx_disp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        const ledgerHash = 'DISPUTED_' + crypto.createHash('sha256').update(postId + now).digest('hex').substring(0, 32);
+
+        await supabase.from('transaction_records').insert([{
+          id: newTxId,
+          post_id: postId,
+          claim_id: claimId,
+          finder_id: post?.finder_id || reportedByUserId,
+          claimant_id: claimantId,
+          campus_location: 'Campus Security Arbitration Desk',
+          finder_confirmed: false,
+          claimant_confirmed: false,
+          completed_at: null,
+          ledger_hash: ledgerHash,
+          created_at: now
+        }]);
+
+        transactionId = newTxId;
+      }
+    }
+
+    if (!transactionId) {
+      transactionId = 'tx_disp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    }
+
     const newDispute = {
       id: disputeId,
-      transaction_id: disputeData.transactionId || disputeData.transaction_id,
-      post_id: disputeData.postId || disputeData.post_id,
-      reported_by_user_id: disputeData.reportedByUserId || disputeData.reported_by_user_id,
+      transaction_id: transactionId,
+      post_id: postId,
+      reported_by_user_id: reportedByUserId,
       reason: (disputeData.reason || '').trim(),
       evidence_description: (disputeData.evidenceDescription || disputeData.evidence_description || '').trim(),
       status: 'Disputed',
@@ -1484,6 +1549,53 @@ export const db = {
     await writeLocalJson(DISPUTES_FILE, disputes);
     await this.updateFoundPostStatus(newDispute.post_id, 'Disputed');
     return newDispute;
+  },
+
+  async updateDisputeStatus(disputeId, status, resolutionNotes = '', unlockPost = false) {
+    const validStatuses = ['Disputed', 'UnderReview', 'Resolved', 'Dismissed'];
+    if (!validStatuses.includes(status)) {
+      throw new Error(`Invalid dispute status: ${status}`);
+    }
+
+    const updates = {
+      status,
+      resolution_notes: resolutionNotes,
+      resolved_at: (status === 'Resolved' || status === 'Dismissed') ? new Date().toISOString() : null
+    };
+
+    let updatedDispute = null;
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('dispute_reports')
+          .update(updates)
+          .eq('id', disputeId)
+          .select('*, reporter:users!reported_by_user_id(id, full_name, email, student_id), post:found_item_posts(*)')
+          .single();
+        if (error) throw error;
+        updatedDispute = data;
+
+        if (unlockPost && data.post_id) {
+          const newPostStatus = status === 'Resolved' ? 'Reunited' : 'AvailableForClaim';
+          await this.updateFoundPostStatus(data.post_id, newPostStatus);
+        }
+      } catch (err) {
+        console.error('[Supabase Error] updateDisputeStatus failed:', err.message);
+        throw err;
+      }
+    } else {
+      const disputes = await readLocalJson(DISPUTES_FILE);
+      const idx = disputes.findIndex(d => d.id === disputeId);
+      if (idx !== -1) {
+        disputes[idx] = { ...disputes[idx], ...updates };
+        await writeLocalJson(DISPUTES_FILE, disputes);
+        updatedDispute = disputes[idx];
+        if (unlockPost && updatedDispute.post_id) {
+          await this.updateFoundPostStatus(updatedDispute.post_id, status === 'Resolved' ? 'Reunited' : 'AvailableForClaim');
+        }
+      }
+    }
+    return updatedDispute;
   },
 
   // =========================================================================

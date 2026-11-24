@@ -51,7 +51,8 @@ export const otpService = {
     try {
       const res = await fetch(`${API_URL}/status`, { signal: AbortSignal.timeout(2000) });
       if (res.ok) {
-        return await res.json();
+        const text = await res.text();
+        return text ? JSON.parse(text) : { status: 'ok', smtpConfigured: false };
       }
     } catch {
       // Backend not running or offline
@@ -89,7 +90,8 @@ export const otpService = {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
         if (data.delivered) {
           isLiveDelivered = true;
           liveMessage = data.message;
@@ -158,7 +160,8 @@ export const otpService = {
         body: JSON.stringify({ email: cleanEmail, code: cleanCode })
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
       if (response.ok && data.valid) {
         return { valid: true };
       }

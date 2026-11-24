@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useSystemDialog } from '../context/SystemDialogContext';
 import { itemService } from '../services/itemService';
-import { X, Send, MapPin, Shield, CheckCircle2 } from 'lucide-react';
+import { X, Send, MapPin, Shield, CheckCircle2, Lock } from 'lucide-react';
 
 export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConfirmed }) {
   const { user } = useAuth();
+  const { showConfirm, showToast, showAlert } = useSystemDialog();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedZone, setSelectedZone] = useState('Main Campus Lobby');
   const [confirming, setConfirming] = useState(false);
-  const [turnoverSuccess, setTurnoverSuccess] = useState(false);
+  const [isTurnoverCompleted, setIsTurnoverCompleted] = useState(false);
   const messagesEndRef = useRef(null);
 
   const safeZones = [
@@ -29,6 +31,31 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
       console.error('Failed to load chat messages:', err);
     }
   };
+
+  // Check if turnover is already finalized (initial load or post reunited)
+  useEffect(() => {
+    if (isOpen && claim) {
+      const postId = claim.post_id || claim.post?.id;
+      if (claim.post?.status === 'Reunited' || claim.status === 'Completed') {
+        setIsTurnoverCompleted(true);
+      } else {
+        itemService.getTransactions(user?.id).then((txs) => {
+          const match = (txs || []).find((t) => t.claim_id === claim.id || (postId && t.post_id === postId));
+          if (match && (match.completed_at || match.ledger_hash)) {
+            setIsTurnoverCompleted(true);
+          }
+        }).catch(() => {});
+
+        if (postId) {
+          itemService.getFoundItemById(postId).then((p) => {
+            if (p && p.status === 'Reunited') {
+              setIsTurnoverCompleted(true);
+            }
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [isOpen, claim, user?.id]);
 
   useEffect(() => {
     if (isOpen && claim?.id) {
@@ -60,33 +87,36 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
       setMessages((prev) => [...prev, { ...sent, sender: user }]);
     } catch (err) {
       console.error('Failed to send message:', err);
+      showAlert({ title: 'Message Error', message: 'Failed to deliver message. Please retry.', type: 'error' });
     }
   };
 
-  const handleConfirmTurnover = async () => {
-    if (!window.confirm(`Are you currently meeting with ${otherPartyName} at ${selectedZone} and ready to confirm the physical return of this item?`)) {
-      return;
-    }
-
-    setConfirming(true);
-    try {
-      const tx = await itemService.confirmTurnover({
-        postId: claim.post_id,
-        claimId: claim.id,
-        userId: user.id,
-        campusLocation: selectedZone
-      });
-      setTurnoverSuccess(true);
-      if (onTurnoverConfirmed) onTurnoverConfirmed(tx);
-      setTimeout(() => {
-        setTurnoverSuccess(false);
-        onClose();
-      }, 2000);
-    } catch (err) {
-      alert(err.message || 'Failed to confirm turnover.');
-    } finally {
-      setConfirming(false);
-    }
+  const handleConfirmTurnover = () => {
+    showConfirm({
+      title: 'Finalize Mutual Turnover',
+      message: `Are you currently meeting with ${otherPartyName} at "${selectedZone}" and ready to confirm the physical handover of "${claim.post?.item_name || 'this item'}"?\n\nThis single click will permanently mark the item as Reunited and issue an official cryptographic ledger record.`,
+      confirmText: 'Yes, Finalize Turnover',
+      cancelText: 'Cancel',
+      type: 'success',
+      onConfirm: async () => {
+        setConfirming(true);
+        try {
+          const tx = await itemService.confirmTurnover({
+            postId: claim.post_id,
+            claimId: claim.id,
+            userId: user.id,
+            campusLocation: selectedZone
+          });
+          setIsTurnoverCompleted(true);
+          showToast('Turnover confirmed! Item is now officially Reunited.', 'success', 'Turnover Finalized');
+          if (onTurnoverConfirmed) onTurnoverConfirmed(tx);
+        } catch (err) {
+          showAlert({ title: 'Turnover Failed', message: err.message || 'Failed to confirm turnover.', type: 'error' });
+        } finally {
+          setConfirming(false);
+        }
+      }
+    });
   };
 
   return (
@@ -140,7 +170,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
         </div>
 
         {/* Message Log */}
-        <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/50 dark:bg-slate-950/30">
+        <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden space-y-3 bg-slate-50/50 dark:bg-slate-950/30">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 text-xs p-6 space-y-2">
               <MapPin className="w-8 h-8 opacity-40 text-theme" />
@@ -160,7 +190,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
                     {isMe ? 'You' : m.sender?.full_name || otherPartyName} • {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   <div
-                    className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
+                    className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed break-words break-all overflow-hidden ${
                       isMe
                         ? 'bg-theme text-white rounded-br-xs'
                         : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 rounded-bl-xs'
@@ -178,16 +208,29 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
         {/* Turnover Confirmation Banner */}
         <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="text-[11px] text-slate-500">
-            Physical handoff completed?
+            {isTurnoverCompleted ? 'Physical turnover verified & finalized' : 'Physical handoff completed?'}
           </div>
           <button
             type="button"
             onClick={handleConfirmTurnover}
-            disabled={confirming || turnoverSuccess}
-            className="px-4 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+            disabled={confirming || isTurnoverCompleted}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition ${
+              isTurnoverCompleted
+                ? 'bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed shadow-none'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-sm hover:shadow'
+            }`}
           >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>{turnoverSuccess ? 'Turnover Confirmed!' : (confirming ? 'Recording...' : 'Confirm Mutual Turnover')}</span>
+            {isTurnoverCompleted ? (
+              <>
+                <Lock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <span>Turnover Completed &amp; Reunited 🤝</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{confirming ? 'Recording...' : 'Confirm Mutual Turnover'}</span>
+              </>
+            )}
           </button>
         </div>
 

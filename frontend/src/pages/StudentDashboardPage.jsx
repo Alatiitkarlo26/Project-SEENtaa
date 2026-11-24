@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useSystemDialog } from '../context/SystemDialogContext';
 import campusBg from '../assets/pup-binan-campus.jpg';
 import OutlookSimulationModal from '../components/OutlookSimulationModal';
 import PostFoundItemModal from '../components/PostFoundItemModal';
@@ -42,6 +43,7 @@ import { getUserRoleTag } from '../utils/userUtils';
 
 export default function StudentDashboardPage() {
   const { user, isNewUser } = useAuth();
+  const { showConfirm, showPrompt, showAlert, showToast } = useSystemDialog();
   const searchInputRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -198,32 +200,49 @@ export default function StudentDashboardPage() {
     { key: 'claims-meetups', label: 'Claims & Meetups', count: totalClaimsCount }
   ];
 
-  const handleApproveClaim = async (claimId) => {
-    if (!window.confirm('Are you sure you want to approve this ownership claim? This will open direct in-app chat to coordinate physical return at a safe zone.')) {
-      return;
-    }
-    try {
-      await itemService.updateClaimStatus(claimId, 'Approved');
-      loadData(true);
-    } catch (err) {
-      alert(err.message || 'Failed to approve claim.');
-    }
+  const handleApproveClaim = (claimId) => {
+    showConfirm({
+      title: 'Approve Ownership Claim',
+      message: 'Are you sure you want to approve this ownership claim? This will open direct in-app chat to coordinate physical return at an official safe zone.',
+      confirmText: 'Approve & Open Meetup',
+      cancelText: 'Cancel',
+      type: 'primary',
+      onConfirm: async () => {
+        try {
+          await itemService.updateClaimStatus(claimId, 'Approved');
+          showToast('Claim approved! Meetup chat is now accessible.', 'success', 'Claim Approved');
+          loadData(true);
+        } catch (err) {
+          showAlert({ title: 'Approval Error', message: err.message || 'Failed to approve claim.', type: 'error' });
+        }
+      }
+    });
   };
 
-  const handleRejectClaim = async (claimId) => {
-    const reason = window.prompt('Provide a reason for rejecting this claim (e.g. Inaccurate distinguishing features):', 'Details did not match physical item features.');
-    if (reason === null) return;
-    try {
-      await itemService.updateClaimStatus(claimId, 'Rejected', reason);
-      loadData(true);
-    } catch (err) {
-      alert(err.message || 'Failed to reject claim.');
-    }
+  const handleRejectClaim = (claimId) => {
+    showPrompt({
+      title: 'Decline Ownership Claim',
+      message: 'Provide an official explanation for declining this claim so the student understands the reason:',
+      placeholder: 'Details did not match physical item features...',
+      defaultValue: 'Details did not match physical item features.',
+      confirmText: 'Decline Claim',
+      cancelText: 'Cancel',
+      onConfirm: async (reason) => {
+        if (!reason || !reason.trim()) return;
+        try {
+          await itemService.updateClaimStatus(claimId, 'Rejected', reason.trim());
+          showToast('Claim declined with feedback note.', 'info', 'Claim Declined');
+          loadData(true);
+        } catch (err) {
+          showAlert({ title: 'Decline Error', message: err.message || 'Failed to reject claim.', type: 'error' });
+        }
+      }
+    });
   };
 
   const exportAuditLogCSV = () => {
     if (!transactions || transactions.length === 0) {
-      alert('No finalized handover records to export.');
+      showAlert({ title: 'No Handover Records', message: 'No finalized handover records to export yet.', type: 'info' });
       return;
     }
     const headers = ['Transaction ID', 'Item Name', 'Safe Zone Location', 'Finder Name', 'Claimant Name', 'Date Completed', 'SHA-256 Ledger Signature'];
@@ -244,11 +263,12 @@ export default function StudentDashboardPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    showToast('Audit ledger CSV exported successfully.', 'success', 'Export Ready');
   };
 
   const exportAuditLogJSON = () => {
     if (!transactions || transactions.length === 0) {
-      alert('No finalized handover records to export.');
+      showAlert({ title: 'No Handover Records', message: 'No finalized handover records to export yet.', type: 'info' });
       return;
     }
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(transactions, null, 2));
@@ -258,6 +278,7 @@ export default function StudentDashboardPage() {
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.removeChild(downloadAnchor);
+    showToast('Audit ledger JSON exported successfully.', 'success', 'Export Ready');
   };
 
   return (

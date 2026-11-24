@@ -1361,6 +1361,127 @@ app.post('/api/disputes', async (req, res) => {
   }
 });
 
+// 3. Admin updates dispute status (Arbitration & Resolution)
+app.put('/api/disputes/:id/status', async (req, res) => {
+  try {
+    const { status, resolutionNotes, unlockPost } = req.body;
+    if (!status) {
+      return res.status(400).json({ success: false, error: 'Status is required.' });
+    }
+
+    const updated = await db.updateDisputeStatus(req.params.id, status, resolutionNotes, unlockPost);
+
+    // Notify the reporting user of arbitration update
+    if (updated?.reported_by_user_id) {
+      await db.createNotification({
+        userId: updated.reported_by_user_id,
+        title: `Dispute Case Update: ${status}`,
+        message: `Your dispute report for "${updated.post?.item_name || 'an item'}" has been updated to "${status}". Notes: ${resolutionNotes || 'None'}.`,
+        type: 'DISPUTE_UPDATE',
+        referenceId: updated.id
+      });
+    }
+
+    res.json({ success: true, message: `Dispute status updated to ${status}.`, dispute: updated });
+  } catch (err) {
+    console.error('Error updating dispute status:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to update dispute status.' });
+  }
+});
+
+// =========================================================================
+// ADMIN AUDIT & OVERSIGHT ENDPOINTS (FR-SEEN-0008)
+// =========================================================================
+
+// 1. Admin overview (All items, reports, transactions, disputes, users)
+app.get('/api/admin/overview', async (req, res) => {
+  try {
+    const [foundPosts, lostReports, transactions, disputes, users] = await Promise.all([
+      db.getFoundPosts(),
+      db.getLostReports(),
+      db.getTransactions(),
+      db.getDisputes(),
+      db.getUsers()
+    ]);
+
+    const safeUsers = (users || []).map((u) => {
+      const { password: _p, ...safe } = u;
+      return safe;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        foundPosts,
+        lostReports,
+        transactions,
+        disputes,
+        users: safeUsers,
+        summary: {
+          totalFound: foundPosts.length,
+          totalLost: lostReports.length,
+          totalTransactions: transactions.length,
+          totalDisputes: disputes.length,
+          totalUsers: safeUsers.length,
+          reunitedCount: transactions.filter((t) => t.completed_at || t.ledger_hash).length,
+          pendingDisputes: disputes.filter((d) => d.status === 'Disputed' || d.status === 'UnderReview').length
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching admin overview:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve administrative overview.' });
+  }
+});
+
+// 2. Admin formal communication notice to student
+app.post('/api/admin/contact-user', async (req, res) => {
+  try {
+    const { userId, subject, message, formalNoticeType, referenceItemId } = req.body;
+    if (!userId || !message) {
+      return res.status(400).json({ success: false, error: 'userId and message are required.' });
+    }
+
+    const users = await db.getUsers();
+    const targetUser = users.find((u) => u.id === userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: 'Target user not found.' });
+    }
+
+    const noticeTitle = subject || `Official Campus Security Notice: ${formalNoticeType || 'Administrative Inquiry'}`;
+
+    // 1. Create in-system notification
+    await db.createNotification({
+      userId,
+      title: `🏛️ ${noticeTitle}`,
+      message: message,
+      type: 'ADMIN_NOTICE',
+      referenceId: referenceItemId || ''
+    });
+
+    // 2. Dispatch official transactional email
+    if (targetUser.email) {
+      sendNotificationEmail({
+        to: targetUser.email,
+        recipientName: targetUser.full_name || 'Iskolar',
+        subject: `[PUP Biñan Campus Security] ${noticeTitle}`,
+        heading: `Official Security & Administrative Notice`,
+        bodyText: `${message}\n\nNotice Type: ${formalNoticeType || 'Administrative Inquiry'}\nIssued by: Campus Security Office & Student Affairs\nVenue: PUP Biñan Campus Security Office (Ground Floor)`,
+        actionText: 'Open Project SEENta Portal',
+        actionUrl: process.env.FRONTEND_URL || 'https://projectseenta.vercel.app'
+      }).catch((e) => console.error('Admin contact email error:', e.message));
+    }
+
+    res.json({
+      success: true,
+      message: `Formal notice delivered to ${targetUser.full_name} (${targetUser.email}).`
+    });
+  } catch (err) {
+    console.error('Admin contact user error:', err.message);
+    res.status(500).json({ success: false, error: err.message || 'Failed to dispatch formal notice.' });
+  }
+});
+
 // =========================================================================
 // FEEDBACK & RATINGS (FR-SEEN-0007, Community Trust)
 // =========================================================================

@@ -278,5 +278,39 @@ export const itemService = {
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data.error || 'Failed to submit feedback');
     return data.feedback;
+  },
+
+  // =========================================================================
+  // ADMIN DASHBOARD & AUDIT OPERATIONS (FR-SEEN-0008)
+  // =========================================================================
+  async adminGetOverview() {
+    const res = await fetch(`${API_URL}/admin/overview`, {
+      headers: getAuthHeaders()
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to fetch administrative overview');
+    return data.data;
+  },
+
+  async adminUpdateDisputeStatus(disputeId, status, resolutionNotes = '', unlockPost = false) {
+    const res = await fetch(`${API_URL}/disputes/${disputeId}/status`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ status, resolutionNotes, unlockPost })
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to update dispute status');
+    return data.dispute;
+  },
+
+  async adminContactUser(contactData) {
+    const res = await fetch(`${API_URL}/admin/contact-user`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(contactData)
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to dispatch official notice');
+    return data;
   }
 };
