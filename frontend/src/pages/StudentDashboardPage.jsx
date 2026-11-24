@@ -79,9 +79,11 @@ export default function StudentDashboardPage() {
 
   const latestEmail = otpService.getLatestEmail(user?.email);
 
-  const loadData = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+  const loadData = useCallback(async (isRefresh = false, isSilent = false) => {
+    if (!isSilent) {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+    }
 
     try {
       const [foundData, lostData, notifsData, usersData, incomingClaims, myClaims, txData] = await Promise.all([
@@ -102,15 +104,37 @@ export default function StudentDashboardPage() {
       setMySubmittedClaims(myClaims || []);
       setTransactions(txData || []);
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      if (!isSilent) console.error('Failed to load dashboard data:', err);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!isSilent) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [user]);
 
+  // Initial load and continuous asynchronous background sync (AJAX)
   useEffect(() => {
-    loadData();
+    loadData(); // initial load with skeleton
+
+    // Periodic silent background sync every 4s so users never have to refresh manually
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadData(true, true);
+      }
+    }, 4000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadData(true, true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [loadData]);
 
   // Keyboard shortcut '/' or 'Cmd/Ctrl+K' to quickly focus the search bar
@@ -249,12 +273,17 @@ export default function StudentDashboardPage() {
       cancelText: 'Cancel',
       type: 'primary',
       onConfirm: async () => {
+        // Optimistic UI update: immediately set status in local React state
+        setClaimsOnMyPosts((prev) =>
+          prev.map((c) => (c.id === claimId ? { ...c, status: 'Approved' } : c))
+        );
         try {
           await itemService.updateClaimStatus(claimId, 'Approved');
           showToast('Claim approved! Meetup chat is now accessible.', 'success', 'Claim Approved');
-          loadData(true);
+          loadData(true, true);
         } catch (err) {
           showAlert({ title: 'Approval Error', message: err.message || 'Failed to approve claim.', type: 'error' });
+          loadData(true, true);
         }
       }
     });
@@ -270,12 +299,22 @@ export default function StudentDashboardPage() {
       cancelText: 'Cancel',
       onConfirm: async (reason) => {
         if (!reason || !reason.trim()) return;
+        const cleanReason = reason.trim();
+        // Optimistic UI update: immediately move to rejected in local state
+        setClaimsOnMyPosts((prev) =>
+          prev.map((c) =>
+            c.id === claimId
+              ? { ...c, status: 'Rejected', rejection_reason: cleanReason, reviewed_at: new Date().toISOString() }
+              : c
+          )
+        );
         try {
-          await itemService.updateClaimStatus(claimId, 'Rejected', reason.trim());
+          await itemService.updateClaimStatus(claimId, 'Rejected', cleanReason);
           showToast('Claim declined with feedback note.', 'info', 'Claim Declined');
-          loadData(true);
+          loadData(true, true);
         } catch (err) {
           showAlert({ title: 'Decline Error', message: err.message || 'Failed to reject claim.', type: 'error' });
+          loadData(true, true);
         }
       }
     });

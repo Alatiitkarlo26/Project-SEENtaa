@@ -32,38 +32,42 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
     }
   };
 
-  // Check if turnover is already finalized (initial load or post reunited)
-  useEffect(() => {
-    if (isOpen && claim) {
-      const postId = claim.post_id || claim.post?.id;
-      if (claim.post?.status === 'Reunited' || claim.status === 'Completed') {
-        setIsTurnoverCompleted(true);
-      } else {
-        itemService.getTransactions(user?.id).then((txs) => {
-          const match = (txs || []).find((t) => t.claim_id === claim.id || (postId && t.post_id === postId));
-          if (match && (match.completed_at || match.ledger_hash)) {
-            setIsTurnoverCompleted(true);
-          }
-        }).catch(() => {});
-
-        if (postId) {
-          itemService.getFoundPostById(postId).then((p) => {
-            if (p && p.status === 'Reunited') {
-              setIsTurnoverCompleted(true);
-            }
-          }).catch(() => {});
-        }
-      }
+  const checkTurnoverStatus = useCallback(() => {
+    if (!claim) return;
+    const postId = claim.post_id || claim.post?.id;
+    if (claim.post?.status === 'Reunited' || claim.status === 'Completed') {
+      setIsTurnoverCompleted(true);
+      return;
     }
-  }, [isOpen, claim, user?.id]);
+    itemService.getTransactions(user?.id).then((txs) => {
+      const match = (txs || []).find((t) => t.claim_id === claim.id || (postId && t.post_id === postId));
+      if (match && (match.completed_at || match.ledger_hash)) {
+        setIsTurnoverCompleted(true);
+      }
+    }).catch(() => {});
+
+    if (postId) {
+      itemService.getFoundPostById(postId).then((p) => {
+        if (p && p.status === 'Reunited') {
+          setIsTurnoverCompleted(true);
+        }
+      }).catch(() => {});
+    }
+  }, [claim, user?.id]);
 
   useEffect(() => {
     if (isOpen && claim?.id) {
       fetchMessages();
-      const interval = setInterval(fetchMessages, 3000); // Polling every 3s
+      checkTurnoverStatus();
+      const interval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          fetchMessages();
+          checkTurnoverStatus();
+        }
+      }, 3000); // Polling every 3s
       return () => clearInterval(interval);
     }
-  }, [isOpen, claim?.id]);
+  }, [isOpen, claim?.id, checkTurnoverStatus]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

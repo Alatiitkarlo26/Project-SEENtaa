@@ -44,26 +44,47 @@ export default function AdminDashboardPage() {
   const [noticeMessage, setNoticeMessage] = useState('');
   const [sendingNotice, setSendingNotice] = useState(false);
 
-  const fetchOverview = useCallback(async () => {
-    setLoading(true);
+  const fetchOverview = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
       const data = await itemService.adminGetOverview();
       setOverview(data);
     } catch (err) {
-      console.error('Failed to load admin overview:', err);
-      showAlert({
-        title: 'Overview Fetch Failed',
-        message: err.message || 'Could not connect to the backend server. Please verify the backend is running.',
-        type: 'error'
-      });
+      if (!isSilent) {
+        console.error('Failed to load admin overview:', err);
+        showAlert({
+          title: 'Overview Fetch Failed',
+          message: err.message || 'Could not connect to the backend server. Please verify the backend is running.',
+          type: 'error'
+        });
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   }, [showAlert]);
 
   useEffect(() => {
     if (role === 'admin') {
-      fetchOverview();
+      fetchOverview(); // initial load
+
+      // Periodic silent background sync every 4s so admin never needs manual refresh
+      const interval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          fetchOverview(true);
+        }
+      }, 4000);
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          fetchOverview(true);
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      return () => {
+        clearInterval(interval);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
     }
   }, [role, fetchOverview]);
 
@@ -108,12 +129,23 @@ export default function AdminDashboardPage() {
       type: newStatus === 'Resolved' ? 'success' : (newStatus === 'Dismissed' ? 'danger' : 'primary'),
       onConfirm: async () => {
         setUpdatingDisputeId(disputeId);
+        // Optimistic UI update in local overview state
+        setOverview((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            disputes: (prev.disputes || []).map((d) =>
+              d.id === disputeId ? { ...d, status: newStatus } : d
+            )
+          };
+        });
         try {
           await itemService.adminUpdateDisputeStatus(disputeId, newStatus, `Arbitrated by Campus Security (${user.fullName})`, unlockPost);
           showToast(`Dispute updated to "${newStatus}". Student has been notified.`, 'success', 'Dispute Arbitrated');
-          fetchOverview();
+          fetchOverview(true);
         } catch (err) {
           showAlert({ title: 'Arbitration Error', message: err.message || 'Failed to update dispute status.', type: 'error' });
+          fetchOverview(true);
         } finally {
           setUpdatingDisputeId(null);
         }
