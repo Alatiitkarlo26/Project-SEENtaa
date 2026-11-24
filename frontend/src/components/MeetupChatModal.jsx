@@ -4,7 +4,7 @@ import { useSystemDialog } from '../context/SystemDialogContext';
 import { itemService } from '../services/itemService';
 import { X, Send, MapPin, Shield, CheckCircle2, Lock } from 'lucide-react';
 
-export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConfirmed }) {
+export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompleted, onTurnoverConfirmed }) {
   const { user } = useAuth();
   const { showConfirm, showToast, showAlert } = useSystemDialog();
   const [messages, setMessages] = useState([]);
@@ -12,8 +12,37 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
   const [loading, setLoading] = useState(false);
   const [selectedZone, setSelectedZone] = useState('Main Campus Lobby');
   const [confirming, setConfirming] = useState(false);
-  const [isTurnoverCompleted, setIsTurnoverCompleted] = useState(false);
+
+  // Check whether this claim or item has already completed turnover
+  const isFinished = useCallback(() => {
+    if (!claim) return false;
+    if (isAlreadyCompleted) return true;
+    const postId = claim.post_id || claim.post?.id;
+    if (claim.post?.status === 'Reunited' || claim.status === 'Completed' || claim.status === 'Finalized') {
+      return true;
+    }
+    try {
+      if (postId && localStorage.getItem(`seenta_turnover_done_${postId}`) === 'true') {
+        return true;
+      }
+      if (claim.id && localStorage.getItem(`seenta_turnover_done_${claim.id}`) === 'true') {
+        return true;
+      }
+    } catch {
+      // ignore localStorage security errors
+    }
+    return false;
+  }, [claim, isAlreadyCompleted]);
+
+  const [isTurnoverCompleted, setIsTurnoverCompleted] = useState(isFinished);
   const messagesEndRef = useRef(null);
+
+  // Synchronize completed state whenever claim or isAlreadyCompleted changes
+  useEffect(() => {
+    if (isFinished()) {
+      setIsTurnoverCompleted(true);
+    }
+  }, [claim, isAlreadyCompleted, isFinished]);
 
   const safeZones = [
     'Main Campus Lobby & Plaza',
@@ -32,31 +61,52 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
     }
   };
 
-  const checkTurnoverStatus = useCallback(() => {
+  const checkTurnoverStatus = useCallback(async () => {
     if (!claim) return;
-    const postId = claim.post_id || claim.post?.id;
-    if (claim.post?.status === 'Reunited' || claim.status === 'Completed') {
+    if (isFinished()) {
       setIsTurnoverCompleted(true);
       return;
     }
-    itemService.getTransactions(user?.id).then((txs) => {
-      const match = (txs || []).find((t) => t.claim_id === claim.id || (postId && t.post_id === postId));
+    const postId = claim.post_id || claim.post?.id;
+
+    try {
+      const txs = await itemService.getTransactions(user?.id);
+      const match = (txs || []).find(
+        (t) => (claim.id && t.claim_id === claim.id) || (postId && t.post_id === postId)
+      );
       if (match && (match.completed_at || match.ledger_hash)) {
         setIsTurnoverCompleted(true);
+        try {
+          if (postId) localStorage.setItem(`seenta_turnover_done_${postId}`, 'true');
+          if (claim.id) localStorage.setItem(`seenta_turnover_done_${claim.id}`, 'true');
+        } catch {}
+        return;
       }
-    }).catch(() => {});
+    } catch {
+      // ignore
+    }
 
     if (postId) {
-      itemService.getFoundPostById(postId).then((p) => {
+      try {
+        const p = await itemService.getFoundPostById(postId);
         if (p && p.status === 'Reunited') {
           setIsTurnoverCompleted(true);
+          try {
+            localStorage.setItem(`seenta_turnover_done_${postId}`, 'true');
+            if (claim.id) localStorage.setItem(`seenta_turnover_done_${claim.id}`, 'true');
+          } catch {}
         }
-      }).catch(() => {});
+      } catch {
+        // ignore
+      }
     }
-  }, [claim, user?.id]);
+  }, [claim, user?.id, isFinished]);
 
   useEffect(() => {
     if (isOpen && claim?.id) {
+      if (isFinished()) {
+        setIsTurnoverCompleted(true);
+      }
       fetchMessages();
       checkTurnoverStatus();
       const interval = setInterval(() => {
@@ -67,7 +117,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
       }, 3000); // Polling every 3s
       return () => clearInterval(interval);
     }
-  }, [isOpen, claim?.id, checkTurnoverStatus]);
+  }, [isOpen, claim?.id, checkTurnoverStatus, isFinished]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -106,14 +156,21 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
       type: 'success',
       onConfirm: async () => {
         setConfirming(true);
+        const postId = claim?.post_id || claim?.post?.id;
         try {
           const tx = await itemService.confirmTurnover({
-            postId: claim?.post_id || claim?.post?.id,
+            postId,
             claimId: claim.id,
             userId: user?.id,
             campusLocation: selectedZone
           });
           setIsTurnoverCompleted(true);
+          try {
+            if (postId) localStorage.setItem(`seenta_turnover_done_${postId}`, 'true');
+            if (claim.id) localStorage.setItem(`seenta_turnover_done_${claim.id}`, 'true');
+          } catch {}
+          if (claim.post) claim.post.status = 'Reunited';
+          claim.status = 'Completed';
           showToast('Turnover confirmed! Item is now officially Reunited.', 'success', 'Turnover Finalized');
           if (onTurnoverConfirmed) onTurnoverConfirmed(tx);
         } catch (err) {
@@ -212,23 +269,34 @@ export default function MeetupChatModal({ isOpen, onClose, claim, onTurnoverConf
         </div>
 
         {/* Turnover Confirmation Banner */}
-        <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
-          <div className="text-[11px] text-slate-500">
-            {isTurnoverCompleted ? 'Physical turnover verified & finalized' : 'Physical handoff completed?'}
+        <div className={`p-3 border-t flex items-center justify-between shrink-0 transition-colors ${
+          isTurnoverCompleted
+            ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/40'
+            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+        }`}>
+          <div className="text-[11px]">
+            {isTurnoverCompleted ? (
+              <span className="text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                Physical turnover finalized &amp; secured on ledger
+              </span>
+            ) : (
+              <span className="text-slate-500">Physical handoff completed?</span>
+            )}
           </div>
           <button
             type="button"
             onClick={handleConfirmTurnover}
             disabled={confirming || isTurnoverCompleted}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition select-none ${
               isTurnoverCompleted
-                ? 'bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed shadow-none'
+                ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed shadow-none border border-slate-300 dark:border-slate-700 pointer-events-none'
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-sm hover:shadow'
             }`}
           >
             {isTurnoverCompleted ? (
               <>
-                <Lock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                 <span>Turnover Completed &amp; Reunited 🤝</span>
               </>
             ) : (

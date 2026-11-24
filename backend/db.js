@@ -1319,17 +1319,18 @@ export const db = {
       const { data } = await supabase
         .from('transaction_records')
         .select('*')
-        .eq('post_id', postId)
-        .eq('claim_id', claimId)
+        .or(`post_id.eq.${postId},claim_id.eq.${claimId}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
       txRecord = data;
     } else {
       const txs = await readLocalJson(TRANSACTIONS_FILE);
-      txRecord = txs.find((t) => t.post_id === postId && t.claim_id === claimId) || null;
+      txRecord = txs.find((t) => t.post_id === postId || t.claim_id === claimId) || null;
     }
 
     // If transaction is already completed, return it immediately (idempotent 1-click turnover)
-    if (txRecord && txRecord.completed_at && txRecord.ledger_hash) {
+    if (txRecord && (txRecord.completed_at || txRecord.ledger_hash)) {
       await this.updateFoundPostStatus(postId, 'Reunited');
       return txRecord;
     }
@@ -1400,6 +1401,35 @@ export const db = {
 
     // Update found post status to Reunited
     await this.updateFoundPostStatus(postId, 'Reunited');
+
+    // Automatically close and decline other pending claims on this reunited post
+    try {
+      if (supabase) {
+        await supabase
+          .from('proof_of_ownership_claims')
+          .update({
+            status: 'Rejected',
+            rejection_reason: 'Item was physically verified and handed over in person.',
+            reviewed_at: now
+          })
+          .eq('post_id', postId)
+          .eq('status', 'UnderReview');
+      } else {
+        const claims = await readLocalJson(CLAIMS_FILE);
+        let changed = false;
+        claims.forEach((c) => {
+          if (c.post_id === postId && c.status === 'UnderReview') {
+            c.status = 'Rejected';
+            c.rejection_reason = 'Item was physically verified and handed over in person.';
+            c.reviewed_at = now;
+            changed = true;
+          }
+        });
+        if (changed) await writeLocalJson(CLAIMS_FILE, claims);
+      }
+    } catch (err) {
+      console.warn('Could not update pending claims on reunited post:', err.message);
+    }
 
     // Send confirmation receipt notifications to both parties
     await this.createNotification({

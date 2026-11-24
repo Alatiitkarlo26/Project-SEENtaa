@@ -226,13 +226,25 @@ export default function StudentDashboardPage() {
       if (claim.post?.status === 'Reunited' || claim.status === 'Completed' || claim.status === 'Finalized') {
         return true;
       }
+      try {
+        if (postId && localStorage.getItem(`seenta_turnover_done_${postId}`) === 'true') {
+          return true;
+        }
+        if (claim.id && localStorage.getItem(`seenta_turnover_done_${claim.id}`) === 'true') {
+          return true;
+        }
+      } catch {}
+      const matchingFoundItem = foundItems.find((f) => f.id === postId);
+      if (matchingFoundItem && matchingFoundItem.status === 'Reunited') {
+        return true;
+      }
       return transactions.some(
         (tx) =>
           (tx.claim_id === claim.id || (postId && tx.post_id === postId)) &&
           (tx.completed_at || tx.ledger_hash)
       );
     },
-    [transactions]
+    [transactions, foundItems]
   );
 
   // Active incoming claims on items user found (excluding finalized & rejected)
@@ -869,7 +881,7 @@ export default function StudentDashboardPage() {
                               Approve Claim
                             </button>
                           </div>
-                        ) : claim.status === 'Approved' ? (
+                        ) : claim.status === 'Approved' && !isClaimFinalized(claim) ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -881,6 +893,11 @@ export default function StudentDashboardPage() {
                             <MessageSquare className="w-3.5 h-3.5" />
                             <span>Meetup Chat &amp; Handover</span>
                           </button>
+                        ) : isClaimFinalized(claim) ? (
+                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-900/40">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Handover Finalized</span>
+                          </span>
                         ) : null}
                       </div>
                     </div>
@@ -940,7 +957,7 @@ export default function StudentDashboardPage() {
                           {new Date(claim.created_at).toLocaleDateString()}
                         </span>
 
-                        {claim.status === 'Approved' && (
+                        {claim.status === 'Approved' && !isClaimFinalized(claim) ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -952,7 +969,12 @@ export default function StudentDashboardPage() {
                             <MessageSquare className="w-3.5 h-3.5" />
                             <span>Meetup Chat &amp; Handover</span>
                           </button>
-                        )}
+                        ) : isClaimFinalized(claim) ? (
+                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-900/40">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Handover Finalized</span>
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -1367,16 +1389,46 @@ export default function StudentDashboardPage() {
       <MeetupChatModal
         isOpen={showChatModal}
         claim={activeChatClaim}
+        isAlreadyCompleted={isClaimFinalized(activeChatClaim)}
         onClose={() => {
           setShowChatModal(false);
           setActiveChatClaim(null);
         }}
         onTurnoverConfirmed={(tx) => {
-          loadData(true);
+          const postId = activeChatClaim?.post_id || activeChatClaim?.post?.id;
+          try {
+            if (postId) localStorage.setItem(`seenta_turnover_done_${postId}`, 'true');
+            if (activeChatClaim?.id) localStorage.setItem(`seenta_turnover_done_${activeChatClaim.id}`, 'true');
+          } catch {}
+
+          if (postId) {
+            setFoundItems((prev) =>
+              prev.map((f) => (f.id === postId ? { ...f, status: 'Reunited' } : f))
+            );
+            setClaimsOnMyPosts((prev) =>
+              prev.map((c) =>
+                c.post_id === postId || c.id === activeChatClaim?.id
+                  ? { ...c, status: 'Completed', post: { ...c.post, status: 'Reunited' } }
+                  : c
+              )
+            );
+            setMySubmittedClaims((prev) =>
+              prev.map((c) =>
+                c.post_id === postId || c.id === activeChatClaim?.id
+                  ? { ...c, status: 'Completed', post: { ...c.post, status: 'Reunited' } }
+                  : c
+              )
+            );
+          }
           if (tx) {
+            setTransactions((prev) => {
+              const exists = prev.some((t) => t.id === tx.id);
+              return exists ? prev : [tx, ...prev];
+            });
             setSelectedTxForFeedback(tx);
             setShowFeedbackModal(true);
           }
+          loadData(true);
         }}
       />
 
