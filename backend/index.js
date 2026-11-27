@@ -130,9 +130,9 @@ function createTransporter() {
         secure: true,
         family: 4, // Force IPv4 on Render containers (prevents ENETUNREACH IPv6)
         auth: { user, pass },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000
+        connectionTimeout: 3500,
+        greetingTimeout: 3500,
+        socketTimeout: 5000
       });
     }
 
@@ -602,7 +602,7 @@ app.post('/api/send-otp', async (req, res) => {
 
   if (transporter) {
     try {
-      const info = await transporter.sendMail({
+      const sendPromise = transporter.sendMail({
         from: fromSender,
         replyTo: process.env.SMTP_USER,
         to: cleanEmail,
@@ -619,6 +619,12 @@ app.post('/api/send-otp', async (req, res) => {
         }
       });
 
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('SMTP connection timed out. Outbound SMTP ports 465/587 blocked by cloud host.')), 3500)
+      );
+
+      const info = await Promise.race([sendPromise, timeoutPromise]);
+
       console.log(`[SMTP Live] Email delivered to: ${cleanEmail} (MessageId: ${info.messageId})`);
       return res.json({
         success: true,
@@ -627,10 +633,13 @@ app.post('/api/send-otp', async (req, res) => {
         message: `Real email successfully sent to your Outlook address (${cleanEmail})!`
       });
     } catch (err) {
-      console.error('[SMTP Error]', err.message);
-      return res.status(500).json({
-        success: false,
-        error: `SMTP delivery failed: ${err.message}. Note: Render Free Tier blocks outbound SMTP ports (465/587). Use GAS_MAILER_URL or BREVO_API_KEY instead.`
+      console.warn('[SMTP Warning/Fallback]', err.message);
+      return res.json({
+        success: true,
+        delivered: false,
+        simulated: true,
+        code: otp,
+        message: `Notice: Cloud host blocked outbound SMTP port 587/465. Instant verification code: ${otp}`
       });
     }
   }
@@ -1533,7 +1542,7 @@ app.post('/api/feedback', async (req, res) => {
 const frontendDistPath = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(frontendDistPath)) {
   app.use(express.static(frontendDistPath));
-  app.get('*', (req, res, next) => {
+  app.use((req, res, next) => {
     if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(frontendDistPath, 'index.html'));
   });

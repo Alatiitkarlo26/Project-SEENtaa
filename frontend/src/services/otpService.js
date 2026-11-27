@@ -65,7 +65,7 @@ export const otpService = {
    * with local simulation fallback.
    */
   async sendOTP(email, recipientName = 'User') {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    let otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
 
     const otps = getStoredOTPs();
@@ -86,7 +86,7 @@ export const otpService = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp, recipientName }),
-        signal: AbortSignal.timeout(25000)
+        signal: AbortSignal.timeout(6000)
       });
 
       if (response.ok) {
@@ -95,11 +95,24 @@ export const otpService = {
         if (data.delivered) {
           isLiveDelivered = true;
           liveMessage = data.message;
+        } else if (data.code) {
+          otp = data.code;
+          liveMessage = data.message;
         }
       }
     } catch (err) {
-      console.warn('Backend mailer unreachable, using local OTP store:', err.message);
+      console.warn('Backend mailer unreachable or timed out, using local OTP store:', err.message);
     }
+
+    // Refresh stored OTP with confirmed code
+    const updatedOtps = getStoredOTPs();
+    updatedOtps[email.toLowerCase()] = {
+      code: otp,
+      expiresAt,
+      attempts: 0,
+      createdAt: Date.now()
+    };
+    saveStoredOTPs(updatedOtps);
 
     // Save formatted simulation log
     const emailPayload = {
