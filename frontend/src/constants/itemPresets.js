@@ -15,10 +15,10 @@ export const ITEM_CATEGORIES = [
 
 export const CAMPUS_LOCATION_GROUPS = [
   {
-    branch: 'PUP Biñan — CITE Campus',
+    branch: 'CITE',
     customValue: 'CITE_CUSTOM',
-    customLabel: 'Custom Location (Strictly within CITE Campus)',
-    customPlaceholder: 'Type exact spot within CITE Campus (e.g. Computer Lab 2, Room 304)...',
+    customLabel: 'Custom Location (Locations strictly within the CITE Campus)',
+    customPlaceholder: 'Type exact spot strictly within CITE Campus (e.g. Computer Lab 2, Room 304)...',
     locations: [
       { value: 'CITE — Campus Canteen', label: 'Campus Canteen' },
       { value: 'CITE — Basketball Court', label: 'Basketball Court' },
@@ -32,23 +32,23 @@ export const CAMPUS_LOCATION_GROUPS = [
     ]
   },
   {
-    branch: 'PUP Biñan — Main Campus',
+    branch: 'Main Campus',
     customValue: 'MAIN_CUSTOM',
-    customLabel: 'Custom Location (Strictly within Main Campus)',
-    customPlaceholder: 'Type exact spot within Main Campus (e.g. Registrar, Old Bldg Room 102)...',
+    customLabel: 'Custom Location (Locations strictly within the Main Campus)',
+    customPlaceholder: 'Type exact spot strictly within Main Campus (e.g. Registrar, Old Bldg Room 102)...',
     locations: [
       { value: 'Main Campus — Canteen Lobby', label: 'Canteen Lobby' },
       { value: 'Main Campus — Guard Post', label: 'Guard Post' },
       { value: 'Main Campus — Quadrangle', label: 'Campus Quadrangle' },
-      { value: 'Main Campus — Park & Garden', label: 'Campus Park & Garden' },
-      { value: 'Main Campus — New Building, 1st Floor Hallway', label: 'New Building — 1st Floor Hallway' },
-      { value: 'Main Campus — New Building, 2nd Floor Hallway', label: 'New Building — 2nd Floor Hallway' },
-      { value: 'Main Campus — New Building, 3rd Floor Hallway', label: 'New Building — 3rd Floor Hallway' },
-      { value: 'Main Campus — New Building, 4th Floor Hallway', label: 'New Building — 4th Floor Hallway' },
-      { value: 'Main Campus — Old Building, 1st Floor Hallway', label: 'Old Building — 1st Floor Hallway' },
-      { value: 'Main Campus — Old Building, 2nd Floor Hallway', label: 'Old Building — 2nd Floor Hallway' },
-      { value: 'Main Campus — Old Building, 3rd Floor Hallway', label: 'Old Building — 3rd Floor Hallway' },
-      { value: 'Main Campus — Old Building, 4th Floor Hallway', label: 'Old Building — 4th Floor Hallway' }
+      { value: 'Main Campus — Park Garden', label: 'Campus Park Garden' },
+      { value: 'Main Campus — New Building 1st Floor Hallway', label: 'New Building 1st Floor Hallway' },
+      { value: 'Main Campus — New Building 2nd Floor Hallway', label: 'New Building 2nd Floor Hallway' },
+      { value: 'Main Campus — New Building 3rd Floor Hallway', label: 'New Building 3rd Floor Hallway' },
+      { value: 'Main Campus — New Building 4th Floor Hallway', label: 'New Building 4th Floor Hallway' },
+      { value: 'Main Campus — Old Building 1st Floor Hallway', label: 'Old Building 1st Floor Hallway' },
+      { value: 'Main Campus — Old Building 2nd Floor Hallway', label: 'Old Building 2nd Floor Hallway' },
+      { value: 'Main Campus — Old Building 3rd Floor Hallway', label: 'Old Building 3rd Floor Hallway' },
+      { value: 'Main Campus — Old Building 4th Floor Hallway', label: 'Old Building 4th Floor Hallway' }
     ]
   }
 ];

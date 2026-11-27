@@ -2,6 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useSystemDialog } from '../context/SystemDialogContext';
 import { itemService } from '../services/itemService';
+import {
+  CAMPUS_LOCATION_GROUPS,
+  CAMPUS_LOCATIONS,
+  isCustomLocationPreset,
+  getCustomLocationPlaceholder,
+  resolveLocationValue
+} from '../constants/itemPresets';
 import { X, Send, MapPin, Shield, CheckCircle2, Lock } from 'lucide-react';
 
 export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompleted, onTurnoverConfirmed }) {
@@ -10,8 +17,24 @@ export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompl
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [selectedZone, setSelectedZone] = useState('Main Campus Lobby');
+  const [selectedLocationPreset, setSelectedLocationPreset] = useState(() => {
+    const postLoc = claim?.post?.location_found;
+    const match = CAMPUS_LOCATIONS.find((loc) => loc === postLoc);
+    return match || CAMPUS_LOCATIONS[0] || 'CITE — Campus Canteen';
+  });
+  const [customLocationText, setCustomLocationText] = useState('');
   const [confirming, setConfirming] = useState(false);
+
+  // Sync default location preset if claim changes
+  useEffect(() => {
+    if (claim?.post?.location_found) {
+      const match = CAMPUS_LOCATIONS.find((loc) => loc === claim.post.location_found);
+      if (match) setSelectedLocationPreset(match);
+    }
+  }, [claim?.post?.location_found]);
+
+  // Resolved safe zone location string
+  const currentSafeZone = resolveLocationValue(selectedLocationPreset, customLocationText) || selectedLocationPreset;
 
   // Check whether this claim or item has already completed turnover
   const isFinished = useCallback(() => {
@@ -44,12 +67,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompl
     }
   }, [claim, isAlreadyCompleted, isFinished]);
 
-  const safeZones = [
-    'Main Campus Lobby & Plaza',
-    'University Library Entrance',
-    'Campus Security Guard Post',
-    'Student Activity Center / Gazebo'
-  ];
+
 
   const fetchMessages = async () => {
     if (!claim?.id) return;
@@ -148,9 +166,10 @@ export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompl
   };
 
   const handleConfirmTurnover = () => {
+    const finalLocation = resolveLocationValue(selectedLocationPreset, customLocationText) || selectedLocationPreset;
     showConfirm({
       title: 'Finalize Mutual Turnover',
-      message: `Are you currently meeting with ${otherPartyName} at "${selectedZone}" and ready to confirm the physical handover of "${claim?.post?.item_name || 'this item'}"?\n\nThis single click will permanently mark the item as Reunited and issue an official cryptographic ledger record.`,
+      message: `Are you currently meeting with ${otherPartyName} at "${finalLocation}" and ready to confirm the physical handover of "${claim?.post?.item_name || 'this item'}"?\n\nThis single click will permanently mark the item as Reunited and issue an official cryptographic ledger record.`,
       confirmText: 'Yes, Finalize Turnover',
       cancelText: 'Cancel',
       type: 'success',
@@ -162,7 +181,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompl
             postId,
             claimId: claim.id,
             userId: user?.id,
-            campusLocation: selectedZone
+            campusLocation: finalLocation
           });
           setIsTurnoverCompleted(true);
           try {
@@ -216,20 +235,42 @@ export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompl
         </div>
 
         {/* Safe-Zone Meeting Banner */}
-        <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/30 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200 shrink-0">
-          <div className="flex items-center gap-2">
-            <Shield className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Meet at official Safe Zone:</span>
+        <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/30 text-xs text-amber-900 dark:text-amber-200 shrink-0 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="font-semibold whitespace-nowrap">Meet at official Safe Zone:</span>
+            </div>
+            <select
+              value={selectedLocationPreset}
+              onChange={(e) => setSelectedLocationPreset(e.target.value)}
+              className="text-xs bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-lg px-2.5 py-1.5 text-slate-900 dark:text-white max-w-full sm:max-w-xs focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer truncate"
+            >
+              {CAMPUS_LOCATION_GROUPS.map((group) => (
+                <optgroup key={group.branch} label={group.branch}>
+                  {group.locations.map((loc) => (
+                    <option key={loc.value} value={loc.value}>
+                      {loc.label}
+                    </option>
+                  ))}
+                  <option value={group.customValue}>{group.customLabel}</option>
+                </optgroup>
+              ))}
+            </select>
           </div>
-          <select
-            value={selectedZone}
-            onChange={(e) => setSelectedZone(e.target.value)}
-            className="text-[11px] bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-lg px-2 py-1 text-slate-900 dark:text-white"
-          >
-            {safeZones.map((z) => (
-              <option key={z} value={z}>{z}</option>
-            ))}
-          </select>
+
+          {isCustomLocationPreset(selectedLocationPreset) && (
+            <div className="pt-0.5">
+              <input
+                type="text"
+                required
+                value={customLocationText}
+                onChange={(e) => setCustomLocationText(e.target.value)}
+                placeholder={getCustomLocationPlaceholder(selectedLocationPreset)}
+                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 text-slate-900 dark:text-white text-xs placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+          )}
         </div>
 
         {/* Message Log */}
@@ -241,7 +282,7 @@ export default function MeetupChatModal({ isOpen, onClose, claim, isAlreadyCompl
                 Private In-App Coordination Opened
               </p>
               <p className="text-[11px] max-w-xs">
-                Coordinate a convenient time to meet on campus at {selectedZone}. Verify each other&apos;s student ID card in person before handing over the item.
+                Coordinate a convenient time to meet on campus at {currentSafeZone}. Verify each other&apos;s student ID card in person before handing over the item.
               </p>
             </div>
           ) : (
