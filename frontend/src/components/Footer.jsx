@@ -57,32 +57,16 @@ export default function Footer({ onNavigateToTab }) {
               </p>
             </div>
 
-            {/* Col 2: Platform Links */}
+            {/* Col 2: Platform Features */}
             <div className="space-y-2">
               <h4 className="text-[11px] font-semibold text-slate-900 dark:text-white uppercase tracking-wider">
                 Platform
               </h4>
               <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
-                <li>
-                  <a href="#feed" className="hover:text-slate-900 dark:hover:text-white transition-colors">
-                    Campus Found Feed
-                  </a>
-                </li>
-                <li>
-                  <a href="#report" className="hover:text-slate-900 dark:hover:text-white transition-colors">
-                    Report Lost Property
-                  </a>
-                </li>
-                <li>
-                  <a href="#post" className="hover:text-slate-900 dark:hover:text-white transition-colors">
-                    Post Found Item
-                  </a>
-                </li>
-                <li>
-                  <span className="text-slate-400 dark:text-slate-500">
-                    Automated Match Engine
-                  </span>
-                </li>
+                <li>Campus Found Feed</li>
+                <li>Report Lost Property</li>
+                <li>Post Found Item</li>
+                <li>Automated Match Engine</li>
               </ul>
             </div>
 
@@ -116,11 +100,11 @@ export default function Footer({ onNavigateToTab }) {
                 Group 12 Development Team
               </p>
               <ul className="space-y-0.5 text-xs text-slate-600 dark:text-slate-400">
-                <li>Jian Karlo, Alatiit</li>
-                <li>Armi Jhon, Aviles</li>
-                <li>Mark Jacob, Igloso</li>
-                <li>Roderick, Orfella Jr.</li>
-                <li>Neilven Ryan, Ubaldo</li>
+                <li>Alatiit</li>
+                <li>Aviles</li>
+                <li>Igloso</li>
+                <li>Orfella Jr.</li>
+                <li>Ubaldo</li>
               </ul>
               <p className="text-[10px] text-slate-500 dark:text-slate-500 pt-0.5">
                 Polytechnic University of the Philippines — Biñan Campus

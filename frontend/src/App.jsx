@@ -7,6 +7,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import AuthPage from './pages/AuthPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
+import InventoryPage from './pages/InventoryPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import AboutUsPage from './pages/AboutUsPage';
 import PrivacyTermsPage from './pages/PrivacyTermsPage';
@@ -27,19 +28,23 @@ function MainContent() {
     setActiveTab(tab);
     if (tab === 'admin-dashboard') {
       window.history.replaceState(null, '', '/admin');
+    } else if (tab === 'inventory') {
+      window.history.replaceState(null, '', '#inventory');
     } else {
       window.history.replaceState(null, '', '/');
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Support direct route & hash navigation (e.g. /admin, #admin, #privacy, #terms)
+  // Support direct route & hash navigation (e.g. /admin, #admin, #privacy, #terms, #inventory)
   useEffect(() => {
     const handleLocation = () => {
       const pathname = window.location.pathname.toLowerCase();
       const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
       if (pathname.includes('/admin') || hash === 'admin' || hash === '/admin') {
         setActiveTab('admin-dashboard');
+      } else if (pathname.includes('/inventory') || hash === 'inventory') {
+        setActiveTab('inventory');
       } else if (hash === '404' || hash === 'not-found') {
         setActiveTab('not-found');
       } else if (hash === 'privacy' || hash === 'terms') {
@@ -79,10 +84,10 @@ function MainContent() {
   }
 
   // When logged in, evaluate active tab with fallback to 404
-  const knownTabs = ['student-dashboard', 'admin-dashboard', 'about-us', 'privacy-terms'];
+  const knownTabs = ['student-dashboard', 'inventory', 'admin-dashboard', 'about-us', 'privacy-terms'];
   const currentTab = !knownTabs.includes(activeTab)
     ? 'not-found'
-    : activeTab === 'about-us' || activeTab === 'privacy-terms'
+    : activeTab === 'about-us' || activeTab === 'privacy-terms' || activeTab === 'inventory'
     ? activeTab
     : role === 'admin'
     ? 'admin-dashboard'
@@ -95,6 +100,10 @@ function MainContent() {
       <main className="flex-1">
         {currentTab === 'student-dashboard' && (
           <StudentDashboardPage onNavigateToTab={handleNavigate} />
+        )}
+
+        {currentTab === 'inventory' && (
+          <InventoryPage onNavigateToTab={handleNavigate} />
         )}
 
         {currentTab === 'admin-dashboard' && (

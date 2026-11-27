@@ -189,18 +189,23 @@ html {
 }
 
 /* Circular Reveal View Transition for Dark / Light Mode */
+::view-transition-image-pair(root) {
+  isolation: auto !important;
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
+  animation: none !important;
+  mix-blend-mode: normal !important;
+  display: block !important;
 }
 
 ::view-transition-old(root) {
-  z-index: 1;
+  z-index: 1 !important;
 }
 
 ::view-transition-new(root) {
-  z-index: 99999;
+  z-index: 2147483647 !important;
 }
 
 .theme-circle-ripple {
@@ -322,5 +327,13 @@ html.high-contrast button {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Hide browser's native date/time picker icon while keeping the click target over our custom icon */
+.clean-picker-input::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+  position: relative;
+  z-index: 10;
 }
 

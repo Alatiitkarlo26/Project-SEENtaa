@@ -8,6 +8,18 @@ const SESSION_STORAGE_KEY = 'seenta_session';
 const rawApiUrl = (import.meta.env.VITE_API_URL || '/api').trim().replace(/\/+$/, '');
 const API_URL = rawApiUrl.endsWith('/api') ? rawApiUrl : `${rawApiUrl}/api`;
 
+function normalizeSessionUser(user) {
+  if (!user) return null;
+  if (user.role === 'admin') {
+    return {
+      ...user,
+      fullName: 'Campus Administrator',
+      full_name: 'Campus Administrator'
+    };
+  }
+  return user;
+}
+
 export const authService = {
   /**
    * Strictly validates institutional university domain
@@ -109,8 +121,9 @@ export const authService = {
       }
 
       // Save user session
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
-      return data;
+      const normalized = normalizeSessionUser(data);
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(normalized));
+      return normalized;
     } catch (err) {
       if (err.message === 'Failed to fetch' || err.name === 'TypeError' || err.message?.includes('JSON')) {
         throw new Error('Backend server is offline! Please start the backend server by running "npm run dev" or "npm run dev:backend" in your terminal.');
@@ -151,8 +164,9 @@ export const authService = {
         throw err;
       }
 
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(data));
-      return data;
+      const normalized = normalizeSessionUser(data);
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(normalized));
+      return normalized;
     } catch (err) {
       if (err.message === 'Failed to fetch' || err.name === 'TypeError' || err.message?.includes('JSON')) {
         throw new Error('Backend server connection issue! Please ensure the backend is running ("npm run dev") and try again.');
@@ -203,7 +217,7 @@ export const authService = {
   getCurrentUser() {
     try {
       const session = localStorage.getItem(SESSION_STORAGE_KEY);
-      return session ? JSON.parse(session) : null;
+      return session ? normalizeSessionUser(JSON.parse(session)) : null;
     } catch {
       return null;
     }

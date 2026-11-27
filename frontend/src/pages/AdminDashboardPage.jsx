@@ -4,24 +4,17 @@ import { useSystemDialog } from '../context/SystemDialogContext';
 import { itemService } from '../services/itemService';
 import {
   ShieldAlert,
-  ShieldCheck,
-  Clock,
-  History,
   FileText,
   Package,
   AlertTriangle,
   Mail,
   RefreshCw,
   Search,
-  ExternalLink,
   CheckCircle,
-  XCircle,
-  Eye,
   Send,
   X,
   Lock,
-  Download,
-  UserCheck
+  Download
 } from 'lucide-react';
 import ScrollReveal from '../components/ScrollReveal';
 
@@ -140,7 +133,7 @@ export default function AdminDashboardPage() {
           };
         });
         try {
-          await itemService.adminUpdateDisputeStatus(disputeId, newStatus, `Arbitrated by Campus Security (${user.fullName})`, unlockPost);
+          await itemService.adminUpdateDisputeStatus(disputeId, newStatus, `Arbitrated by Campus Security (${user?.role === 'admin' ? 'Campus Administrator' : user.fullName})`, unlockPost);
           showToast(`Dispute updated to "${newStatus}". Student has been notified.`, 'success', 'Dispute Arbitrated');
           fetchOverview(true);
         } catch (err) {
@@ -229,30 +222,28 @@ export default function AdminDashboardPage() {
     showToast('Cryptographic ledger CSV exported.', 'success', 'Export Complete');
   };
 
+  const adminDisplayName = user?.role === 'admin' ? 'Campus Administrator' : (user?.fullName || 'Campus Administrator');
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fadeIn">
       {/* Admin Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-black rounded-3xl p-6 sm:p-8 text-white shadow-xl mb-8 relative overflow-hidden border border-slate-800">
+      <div className="bg-slate-950 rounded-2xl p-6 sm:p-8 text-white mb-8 border border-slate-800">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/20 border border-rose-400/30 text-rose-300 text-xs font-bold mb-3">
-              <ShieldCheck className="w-4 h-4 text-rose-400" />
-              <span>Campus Security Administration • Official Portal (/admin)</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
               Security Inventory, Disputes &amp; Oversight
             </h1>
             <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-              Logged in as <strong className="text-white">{user.fullName || 'Security Officer'}</strong> ({user.studentId || 'Officer ID'}). Read-only student post oversight, active dispute arbitration, and official summons dispatch.
+              Logged in as <strong className="text-white">{adminDisplayName}</strong> ({user.studentId || 'Officer ID'}) • Read-only student post oversight, active dispute arbitration, and official summons dispatch.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={fetchOverview}
+              onClick={() => fetchOverview()}
               disabled={loading}
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-semibold backdrop-blur-sm transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-4 py-2 bg-white/10 hover:bg-white/15 text-white border border-white/15 rounded-full text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               <span>Refresh Data</span>
@@ -260,9 +251,9 @@ export default function AdminDashboardPage() {
             <button
               type="button"
               onClick={exportLedgerCSV}
-              className="px-4 py-2.5 bg-theme hover:bg-theme-hover text-white rounded-xl text-xs font-bold shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+              className="px-4 py-2 bg-theme hover:bg-theme-hover text-white rounded-full text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
               <span>Export Ledger</span>
             </button>
           </div>
@@ -275,17 +266,17 @@ export default function AdminDashboardPage() {
           {stats.map((s, idx) => {
             const Icon = s.icon;
             return (
-              <div key={idx} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between">
+              <div key={idx} className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                     {s.label}
                   </div>
-                  <div className={`text-3xl font-extrabold ${s.color}`}>
+                  <div className={`text-2xl sm:text-3xl font-bold ${s.color}`}>
                     {loading ? '...' : s.count}
                   </div>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
-                  <Icon className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
+                  <Icon className="w-4.5 h-4.5" />
                 </div>
               </div>
             );
@@ -294,7 +285,7 @@ export default function AdminDashboardPage() {
       </ScrollReveal>
 
       {/* Notice Banner: Admin Read-Only Philosophy */}
-      <div className="mb-6 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 flex items-start gap-3 text-xs text-amber-900 dark:text-amber-200">
+      <div className="mb-6 p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-900/50 flex items-start gap-3 text-xs text-amber-900 dark:text-amber-200">
         <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
         <div>
           <span className="font-bold">Administrative Safeguard Notice:</span> All item posts and lost reports are strictly student-owned and peer-to-peer managed. Campus Security has complete transparency to oversee all campus records and arbitrate disputed claims, but cannot alter or delete student listings. Use the official <strong>&quot;Contact User&quot;</strong> feature to formally summon students or verify physical custody.
@@ -302,31 +293,44 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2 mb-6 overflow-x-auto pb-1">
+      <div className="flex items-center border-b border-slate-200 dark:border-slate-800 mb-6 overflow-x-auto no-scrollbar">
         {[
-          { key: 'disputes', label: 'Disputes & Arbitration Desk', count: disputes.length, badgeColor: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' },
-          { key: 'items', label: 'All Found Items (Oversight)', count: foundPosts.length, badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' },
-          { key: 'reports', label: 'All Lost Reports (Oversight)', count: lostReports.length, badgeColor: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' },
-          { key: 'ledger', label: 'Cryptographic Ledger', count: transactions.length, badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' }
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => {
-              setActiveTab(tab.key);
-              setSearchQuery('');
-            }}
-            className={`px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold flex items-center gap-2 border-b-2 transition whitespace-nowrap cursor-pointer ${
-              activeTab === tab.key
-                ? 'border-theme text-theme bg-white dark:bg-slate-900 shadow-xs'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            <span>{tab.label}</span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${tab.badgeColor}`}>
-              {tab.count}
-            </span>
-          </button>
+          { key: 'disputes', label: 'Disputes & Arbitration Desk', count: disputes.length },
+          { key: 'items', label: 'All Found Items', count: foundPosts.length },
+          { key: 'reports', label: 'All Lost Reports', count: lostReports.length },
+          { key: 'ledger', label: 'Cryptographic Ledger', count: transactions.length }
+        ].map((tab, idx) => (
+          <div key={tab.key} className="flex items-center shrink-0">
+            {idx > 0 && (
+              <span className="w-px h-4 bg-slate-200 dark:bg-slate-800 mb-3 mx-1 sm:mx-1.5 shrink-0" aria-hidden="true" />
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab(tab.key);
+                setSearchQuery('');
+              }}
+              className={`relative pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer ${
+                activeTab === tab.key
+                  ? 'text-slate-900 dark:text-white'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span
+                className={`text-[11px] px-1.5 py-0.2 rounded-full tabular-nums ${
+                  activeTab === tab.key
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold'
+                    : 'bg-slate-100/70 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 font-medium'
+                }`}
+              >
+                {tab.count}
+              </span>
+              {activeTab === tab.key && (
+                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-theme rounded-full" />
+              )}
+            </button>
+          </div>
         ))}
       </div>
 
@@ -371,18 +375,13 @@ export default function AdminDashboardPage() {
                   className="p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center font-bold text-xs shrink-0">
-                        ⚖️
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                          Disputed Item: {d.post?.item_name || 'Contested Post'}
-                        </h4>
-                        <p className="text-[11px] text-slate-500">
-                          Filed on {new Date(d.created_at).toLocaleString()} • Case ID: <span className="font-mono">{d.id}</span>
-                        </p>
-                      </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                        Disputed Item: {d.post?.item_name || 'Contested Post'}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Filed on {new Date(d.created_at).toLocaleString()} • Case ID: <span className="font-mono">{d.id}</span>
+                      </p>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -709,18 +708,13 @@ export default function AdminDashboardPage() {
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-6">
             <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-theme/10 text-theme flex items-center justify-center font-bold text-xs">
-                  🏛️
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Issue Formal Campus Security Notice
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Recipient: <strong>{targetUser?.full_name || 'Student'}</strong> ({targetUser?.email})
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Issue Formal Campus Security Notice
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Recipient: <strong>{targetUser?.full_name || 'Student'}</strong> ({targetUser?.email})
+                </p>
               </div>
               <button
                 type="button"

@@ -87,10 +87,21 @@
     --theme-glow: rgba(24, 24, 27, 0.25);
   }
 
-  /* Dark mode theme color adjustments */
+  /* Monochromatic Dark Mode Palette (replaces cool blue slate with pure neutral grays) */
   .dark {
     --theme-primary-light: rgba(255, 255, 255, 0.08);
     --theme-primary-border: rgba(255, 255, 255, 0.16);
+    --color-slate-50: #fafafa;
+    --color-slate-100: #f5f5f5;
+    --color-slate-200: #e5e5e5;
+    --color-slate-300: #d4d4d4;
+    --color-slate-400: #a3a3a3;
+    --color-slate-500: #737373;
+    --color-slate-600: #525252;
+    --color-slate-700: #404040;
+    --color-slate-800: #262626;
+    --color-slate-900: #171717;
+    --color-slate-950: #0a0a0a;
   }
 
   .dark[data-theme="maroon"] {
@@ -130,8 +141,8 @@ body {
 }
 
 .dark body {
-  background-color: #090d16;
-  color: #f8fafc;
+  background-color: #0a0a0a;
+  color: #f5f5f5;
 }
 
 input, button, textarea, select {

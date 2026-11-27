@@ -26,8 +26,11 @@ export default function Navbar({ activeTab, setActiveTab }) {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [alertsTrigger, setAlertsTrigger] = useState('desktop');
+  const [a11yTrigger, setA11yTrigger] = useState('desktop');
   const desktopAlertsBtnRef = useRef(null);
   const mobileAlertsBtnRef = useRef(null);
+  const desktopA11yBtnRef = useRef(null);
+  const mobileA11yBtnRef = useRef(null);
 
   // Active section for navigation: 'home' | 'inventory' | 'about-us'
   const [activeNav, setActiveNav] = useState(() => (activeTab === 'about-us' ? 'about-us' : 'home'));
@@ -82,80 +85,43 @@ export default function Navbar({ activeTab, setActiveTab }) {
       clearTimeout(timer);
       window.removeEventListener('resize', updateIndicator);
     };
-  }, [updateIndicator]);
+  }, [updateIndicator, role]);
 
   // Sync activeNav with activeTab when routed externally
   useEffect(() => {
-    if (activeTab === 'about-us') {
+    if (activeTab === 'inventory') {
+      setActiveNav('inventory');
+    } else if (activeTab === 'about-us') {
       setActiveNav('about-us');
     } else if (activeTab === 'privacy-terms') {
       setActiveNav('privacy-terms');
-    } else if (activeNav === 'about-us' || activeNav === 'privacy-terms') {
+    } else {
       setActiveNav('home');
     }
   }, [activeTab]);
 
-  // Scroll spy: smoothly update activeNav between 'home' and 'inventory' as user scrolls
-  useEffect(() => {
-    if (activeTab === 'about-us' || activeTab === 'privacy-terms') return;
-
-    const handleScroll = () => {
-      const inventoryEl = document.getElementById('inventory-feed');
-      if (!inventoryEl) return;
-
-      const rect = inventoryEl.getBoundingClientRect();
-      // If the inventory feed section is at or above 240px from viewport top
-      if (rect.top <= 240) {
-        setActiveNav((prev) => (prev !== 'inventory' ? 'inventory' : prev));
-      } else {
-        setActiveNav((prev) => (prev !== 'home' ? 'home' : prev));
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [activeTab]);
-
   const handleHomeClick = () => {
     setActiveNav('home');
-    if (activeTab !== 'student-dashboard' && role !== 'admin') {
-      setActiveTab(role === 'admin' ? 'admin-dashboard' : 'student-dashboard');
-    }
+    setActiveTab(role === 'admin' ? 'admin-dashboard' : 'student-dashboard');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleBrowseInventory = () => {
     setActiveNav('inventory');
-    if (activeTab !== 'student-dashboard' && role !== 'admin') {
-      setActiveTab('student-dashboard');
-      setTimeout(() => {
-        document.getElementById('inventory-feed')?.scrollIntoView({ behavior: 'smooth' });
-      }, 120);
-    } else {
-      document.getElementById('inventory-feed')?.scrollIntoView({ behavior: 'smooth' });
-    }
+    setActiveTab('inventory');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAboutUsClick = () => {
     setActiveNav('about-us');
     setActiveTab('about-us');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleViewNotificationItem = (referenceId) => {
     setIsNotifModalOpen(false);
     fetchUnreadCount();
-    if (activeTab !== 'student-dashboard' && role !== 'admin') {
-      setActiveTab('student-dashboard');
-    }
-    setTimeout(() => {
-      const el = document.getElementById(`item-${referenceId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('ring-2', 'ring-theme');
-        setTimeout(() => el.classList.remove('ring-2', 'ring-theme'), 2000);
-      }
-    }, 200);
+    setActiveTab('inventory');
   };
 
   return (
@@ -222,17 +188,19 @@ export default function Navbar({ activeTab, setActiveTab }) {
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium'
                 }`}
               >
-                <span>Browse Inventory</span>
+                <span>Inventory</span>
               </button>
 
-              {/* Report Lost Item */}
-              <button
-                type="button"
-                onClick={() => setIsReportModalOpen(true)}
-                className="relative z-10 px-4 py-1.5 rounded-full text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95"
-              >
-                <span>Report Lost Item</span>
-              </button>
+              {/* Report Lost Item (hidden for admin) */}
+              {role !== 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => setIsReportModalOpen(true)}
+                  className="relative z-10 px-4 py-1.5 rounded-full text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95"
+                >
+                  <span>Report Lost Item</span>
+                </button>
+              )}
 
               {/* About Us */}
               <button
@@ -267,54 +235,63 @@ export default function Navbar({ activeTab, setActiveTab }) {
                 )}
               </button>
 
-              {/* Accessibility Modal Opener */}
+              {/* Accessibility Popover Opener */}
               <button
+                ref={desktopA11yBtnRef}
                 type="button"
-                onClick={() => setIsA11yModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition cursor-pointer shadow-2xs"
+                onClick={() => {
+                  setA11yTrigger('desktop');
+                  setIsNotifModalOpen(false);
+                  setIsA11yModalOpen((prev) => !prev);
+                }}
+                className={`h-9 flex items-center gap-2 px-3.5 text-xs font-semibold rounded-full border transition cursor-pointer shadow-2xs active:scale-95 ${
+                  isA11yModalOpen && a11yTrigger === 'desktop'
+                    ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                }`}
                 title="Accessibility & Appearance"
                 aria-label="Open appearance and accessibility settings"
+                aria-expanded={isA11yModalOpen && a11yTrigger === 'desktop'}
               >
-                <PersonStanding className="w-3.5 h-3.5 text-theme" />
+                <PersonStanding className="w-4 h-4 text-theme" />
                 <span className="hidden lg:inline">Accessibility</span>
               </button>
 
-              {/* Alerts / Notifications Trigger (next to profile beside accessibility) */}
+              {/* Notifications Trigger (next to profile beside accessibility) */}
               <button
                 ref={desktopAlertsBtnRef}
                 type="button"
                 onClick={() => {
                   setAlertsTrigger('desktop');
+                  setIsA11yModalOpen(false);
                   setIsNotifModalOpen((prev) => !prev);
                 }}
-                className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border transition-all cursor-pointer shadow-2xs group active:scale-95 ${
+                className={`relative h-9 flex items-center gap-2 px-3.5 text-xs font-semibold rounded-full border transition-all cursor-pointer shadow-2xs group active:scale-95 ${
                   isNotifModalOpen && alertsTrigger === 'desktop'
-                    ? 'border-theme bg-theme/[0.08] text-theme ring-2 ring-theme/20'
+                    ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                    : unreadCount > 0
+                    ? 'border-red-500/30 dark:border-red-500/40 bg-red-500/[0.035] dark:bg-red-950/20 text-slate-700 dark:text-slate-200 shadow-[0_0_12px_-2px_rgba(239,68,68,0.22)] hover:border-red-500/50'
                     : 'border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
                 }`}
-                title="View Match Alerts & Notifications"
-                aria-label="Open appearance and alerts"
+                title="Notifications"
+                aria-label="Open notifications"
                 aria-expanded={isNotifModalOpen && alertsTrigger === 'desktop'}
               >
-                <Bell className={`w-3.5 h-3.5 transition-transform group-hover:scale-110 ${
-                  isNotifModalOpen && alertsTrigger === 'desktop' ? 'text-theme' : 'text-amber-500'
-                }`} />
-                <span className="hidden lg:inline">Alerts</span>
+                <Bell className="w-4 h-4 text-slate-600 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors" />
+                <span>Notifications</span>
                 {unreadCount > 0 && (
-                  <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-amber-500 text-white leading-tight">
-                    {unreadCount}
-                  </span>
+                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
                 )}
               </button>
 
               {/* User Identity Pill */}
               <div className="flex items-center gap-3 pl-3 border-l border-slate-200 dark:border-slate-800">
                 <div className="w-9 h-9 rounded-full bg-theme text-white font-bold flex items-center justify-center text-xs shadow-xs shrink-0">
-                  {user?.fullName?.charAt(0) || 'U'}
+                  {(user?.role === 'admin' ? 'Campus Administrator' : user?.fullName)?.charAt(0) || 'U'}
                 </div>
                 <div className="text-left min-w-0">
                   <div className="text-xs font-bold text-slate-900 dark:text-white leading-tight truncate">
-                    {user?.fullName}
+                    {user?.role === 'admin' ? 'Campus Administrator' : user?.fullName}
                   </div>
                   <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 truncate">
                     {user?.studentId} • {user?.roleTitle || 'Iskolar'}
@@ -360,11 +337,21 @@ export default function Navbar({ activeTab, setActiveTab }) {
               </button>
 
               <button
+                ref={mobileA11yBtnRef}
                 type="button"
-                onClick={() => setIsA11yModalOpen(true)}
-                className="p-2 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                onClick={() => {
+                  setA11yTrigger('mobile');
+                  setIsNotifModalOpen(false);
+                  setIsA11yModalOpen((prev) => !prev);
+                }}
+                className={`p-2 rounded-lg cursor-pointer transition-colors ${
+                  isA11yModalOpen && a11yTrigger === 'mobile'
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
                 title="Accessibility & Appearance"
                 aria-label="Open appearance and accessibility settings"
+                aria-expanded={isA11yModalOpen && a11yTrigger === 'mobile'}
               >
                 <PersonStanding className="w-5 h-5 text-theme" />
               </button>
@@ -374,20 +361,23 @@ export default function Navbar({ activeTab, setActiveTab }) {
                 type="button"
                 onClick={() => {
                   setAlertsTrigger('mobile');
+                  setIsA11yModalOpen(false);
                   setIsNotifModalOpen((prev) => !prev);
                 }}
                 className={`relative p-2 rounded-lg cursor-pointer transition-all active:scale-95 ${
                   isNotifModalOpen && alertsTrigger === 'mobile'
-                    ? 'bg-theme/[0.08] text-theme ring-2 ring-theme/20'
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                    : unreadCount > 0
+                    ? 'bg-red-500/[0.04] dark:bg-red-950/20 border border-red-500/30 dark:border-red-500/40 text-slate-700 dark:text-slate-200 shadow-[0_0_10px_-2px_rgba(239,68,68,0.25)]'
                     : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
-                title="Alerts & Notifications"
-                aria-label="Open alerts"
+                title="Notifications"
+                aria-label="Open notifications"
                 aria-expanded={isNotifModalOpen && alertsTrigger === 'mobile'}
               >
-                <Bell className={`w-5 h-5 transition-transform ${isNotifModalOpen && alertsTrigger === 'mobile' ? 'text-theme' : 'text-amber-500'}`} />
+                <Bell className="w-5 h-5 text-slate-600 dark:text-slate-300 transition-colors" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900" />
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-slate-900" />
                 )}
               </button>
 
@@ -406,7 +396,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
           <div className="sm:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 animate-fadeIn">
             <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700">
               <div className="font-bold text-sm text-slate-900 dark:text-white truncate">
-                {user?.fullName}
+                {user?.role === 'admin' ? 'Campus Administrator' : user?.fullName}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">{user?.studentId}</div>
               <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email}</div>
@@ -441,19 +431,21 @@ export default function Navbar({ activeTab, setActiveTab }) {
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 border border-transparent font-medium'
                 }`}
               >
-                <span>Browse Inventory</span>
+                <span>Inventory</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setIsReportModalOpen(true);
-                }}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 text-left transition-all duration-200 ease-out cursor-pointer active:scale-95 border border-transparent"
-              >
-                <span>Report Lost Item</span>
-              </button>
+              {role !== 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setIsReportModalOpen(true);
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 text-left transition-all duration-200 ease-out cursor-pointer active:scale-95 border border-transparent"
+                >
+                  <span>Report Lost Item</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -471,23 +463,25 @@ export default function Navbar({ activeTab, setActiveTab }) {
               </button>
             </div>
 
-            {/* Alerts & Notifications Trigger */}
+            {/* Notifications Trigger */}
             <button
               onClick={() => {
                 setAlertsTrigger('mobile');
                 setIsNotifModalOpen(true);
                 setMobileMenuOpen(false);
               }}
-              className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-between cursor-pointer"
+              className={`w-full py-2.5 px-4 rounded-xl border text-xs font-semibold flex items-center justify-between cursor-pointer transition-all ${
+                unreadCount > 0
+                  ? 'border-red-500/30 dark:border-red-500/40 bg-red-500/[0.035] dark:bg-red-950/20 text-slate-800 dark:text-slate-200 shadow-[0_0_12px_-2px_rgba(239,68,68,0.2)]'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
+              }`}
             >
               <span className="flex items-center gap-2">
-                <Bell className="w-4 h-4 text-amber-500" />
-                <span>Alerts &amp; Notifications</span>
+                <Bell className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                <span>Notifications</span>
               </span>
               {unreadCount > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold">
-                  {unreadCount} new
-                </span>
+                <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
               )}
             </button>
 
@@ -520,9 +514,10 @@ export default function Navbar({ activeTab, setActiveTab }) {
         )}
       </header>
 
-      {/* Accessibility & Theme Customization Modal */}
+      {/* Accessibility & Theme Customization Popover */}
       <AccessibilityModal
         isOpen={isA11yModalOpen}
+        anchorRef={a11yTrigger === 'mobile' ? mobileA11yBtnRef : desktopA11yBtnRef}
         onClose={() => setIsA11yModalOpen(false)}
       />
 
@@ -537,14 +532,16 @@ export default function Navbar({ activeTab, setActiveTab }) {
         onViewItem={handleViewNotificationItem}
       />
 
-      {/* Quick Report Lost Item Modal */}
-      <ReportLostItemModal
-        isOpen={isReportModalOpen}
-        onClose={() => setIsReportModalOpen(false)}
-        onReportCreated={() => {
-          setIsReportModalOpen(false);
-        }}
-      />
+      {/* Quick Report Lost Item Modal (disabled for admin) */}
+      {role !== 'admin' && (
+        <ReportLostItemModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+          onReportCreated={() => {
+            setIsReportModalOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }

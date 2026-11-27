@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useSystemDialog } from '../context/SystemDialogContext';
 import campusBg from '../assets/pup-binan-campus.jpg';
@@ -12,15 +12,13 @@ import MeetupChatModal from '../components/MeetupChatModal';
 import DisputeModal from '../components/DisputeModal';
 import FeedbackRatingModal from '../components/FeedbackRatingModal';
 import { itemService } from '../services/itemService';
-import { authService } from '../services/authService';
 import { otpService } from '../services/otpService';
-import { ITEM_CATEGORIES } from '../constants/itemPresets';
 import {
   Search,
+  SearchCheck,
   Package,
   MapPin,
   Calendar,
-  Sparkles,
   Camera,
   FileText,
   Tag,
@@ -31,25 +29,85 @@ import {
   HelpCircle,
   ChevronRight,
   MessageSquare,
-  Check,
-  ShieldAlert,
   History,
   Star,
   Download,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Filter,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import ScrollReveal from '../components/ScrollReveal';
-import { ItemCardSkeleton, LostReportCardSkeleton } from '../components/Skeleton';
+import { ItemCardSkeleton } from '../components/Skeleton';
 import { getUserRoleTag } from '../utils/userUtils';
 
-export default function StudentDashboardPage() {
+function getItemStatusKey(status) {
+  if (!status || status === 'AvailableForClaim' || status === 'Available') return 'available';
+  if (status === 'CoordinatingHandover' || status === 'ClaimUnderReview' || status === 'Handover') return 'handover';
+  if (status === 'Reunited' || status === 'Completed' || status === 'Finalized') return 'reunited';
+  if (status === 'Disputed') return 'disputed';
+  return 'available';
+}
+
+function getStatusBadge(status) {
+  const key = getItemStatusKey(status);
+  switch (key) {
+    case 'reunited':
+      return {
+        label: 'Reunited',
+        className: 'bg-sky-50 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/80',
+        dotClass: 'bg-sky-500'
+      };
+    case 'handover':
+      return {
+        label: 'Hand over',
+        className: 'bg-orange-50 dark:bg-orange-950/70 text-orange-700 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/80',
+        dotClass: 'bg-orange-500'
+      };
+    case 'disputed':
+      return {
+        label: 'Disputed',
+        className: 'bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80',
+        dotClass: 'bg-amber-500'
+      };
+    case 'available':
+    default:
+      return {
+        label: 'Available for claim',
+        className: 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/80',
+        dotClass: 'bg-emerald-500'
+      };
+  }
+}
+
+const QUICK_FILTER_OPTIONS = [
+  { label: 'All Items', query: '' },
+  { label: 'Student ID', query: 'ID' },
+  { label: 'Calculator', query: 'Calculator' },
+  { label: 'Tumbler', query: 'Tumbler' },
+  { label: 'Keys', query: 'Keys' },
+  { label: 'Umbrella', query: 'Umbrella' },
+  { label: 'Earphones', query: 'Earphones' }
+];
+
+function matchesItemFilters(fields, searchQuery, quickFilter) {
+  const q = searchQuery.toLowerCase().trim();
+  const f = quickFilter.toLowerCase().trim();
+  const matchesQuery = !q || fields.some((val) => val?.toLowerCase().includes(q));
+  const matchesFilter = !f || fields.some((val) => val?.toLowerCase().includes(f));
+  return matchesQuery && matchesFilter;
+}
+
+export default function StudentDashboardPage({ onNavigateToTab }) {
   const { user, isNewUser } = useAuth();
   const { showConfirm, showPrompt, showAlert, showToast } = useSystemDialog();
   const searchInputRef = useRef(null);
+  const filterDropdownRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [activeTab, setActiveTab] = useState('campus-feed'); // 'campus-feed' | 'my-found' | 'my-lost' | 'claims-meetups'
+  const [selectedQuickFilter, setSelectedQuickFilter] = useState('');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [activeActivityTab, setActiveActivityTab] = useState('my-lost'); // 'my-lost' | 'claims-meetups' | 'my-found'
 
   // Data states
   const [foundItems, setFoundItems] = useState([]);
@@ -58,7 +116,6 @@ export default function StudentDashboardPage() {
   const [claimsOnMyPosts, setClaimsOnMyPosts] = useState([]);
   const [mySubmittedClaims, setMySubmittedClaims] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [activeUsersCount, setActiveUsersCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -86,11 +143,10 @@ export default function StudentDashboardPage() {
     }
 
     try {
-      const [foundData, lostData, notifsData, usersData, incomingClaims, myClaims, txData] = await Promise.all([
+      const [foundData, lostData, notifsData, incomingClaims, myClaims, txData] = await Promise.all([
         itemService.getFoundPosts(),
         user?.id ? itemService.getLostReports({ userId: user.id }) : [],
         user?.id ? itemService.getNotifications(user.id) : [],
-        authService.getAllUsers(),
         user?.id ? itemService.getClaims({ finderId: user.id }) : [],
         user?.id ? itemService.getClaims({ claimantId: user.id }) : [],
         user?.id ? itemService.getTransactions(user.id) : []
@@ -99,7 +155,6 @@ export default function StudentDashboardPage() {
       setFoundItems(foundData || []);
       setLostReports(lostData || []);
       setNotifications(notifsData || []);
-      setActiveUsersCount(Array.isArray(usersData) && usersData.length > 0 ? usersData.length : (user ? 1 : 0));
       setClaimsOnMyPosts(incomingClaims || []);
       setMySubmittedClaims(myClaims || []);
       setTransactions(txData || []);
@@ -152,6 +207,25 @@ export default function StudentDashboardPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Close custom filter dropdown on outside click or Escape
+  useEffect(() => {
+    if (!isFilterOpen) return;
+    const handleOutsideClick = (e) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target)) {
+        setIsFilterOpen(false);
+      }
+    };
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') setIsFilterOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [isFilterOpen]);
+
   // Handle post/report creation callbacks
   const handleItemPosted = (newPost) => {
     setFoundItems((prev) => [newPost, ...prev]);
@@ -178,37 +252,41 @@ export default function StudentDashboardPage() {
 
   // Active match alerts count
   const unreadMatches = notifications.filter((n) => !n.is_read && n.type === 'MATCH');
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
-  const categories = ['All', ...ITEM_CATEGORIES];
+  const myPostedItems = useMemo(() => {
+    return foundItems.filter((i) => i.finder_id === user?.id);
+  }, [foundItems, user?.id]);
 
-  // Filter items based on activeTab, category, and search query
-  const displayedFoundItems = (activeTab === 'my-found'
-    ? foundItems.filter((i) => i.finder_id === user?.id)
-    : foundItems
-  ).filter((item) => {
-    const matchesCat = selectedCategory === 'All' || item.category === selectedCategory;
-    const q = searchQuery.toLowerCase().trim();
-    const matchesSearch =
-      !q ||
-      item.item_name?.toLowerCase().includes(q) ||
-      item.location_found?.toLowerCase().includes(q) ||
-      item.description?.toLowerCase().includes(q) ||
-      item.color?.toLowerCase().includes(q);
-    return matchesCat && matchesSearch;
-  });
+  const myFoundCount = myPostedItems.length;
 
-  const displayedLostReports = lostReports.filter((report) => {
-    const matchesCat = selectedCategory === 'All' || report.category === selectedCategory;
-    const q = searchQuery.toLowerCase().trim();
-    const matchesSearch =
-      !q ||
-      report.item_name?.toLowerCase().includes(q) ||
-      report.last_known_location?.toLowerCase().includes(q) ||
-      report.description?.toLowerCase().includes(q) ||
-      report.color?.toLowerCase().includes(q);
-    return matchesCat && matchesSearch;
-  });
+  const displayedLostReports = useMemo(() => {
+    if (!searchQuery.trim() && !selectedQuickFilter) return lostReports;
+    return lostReports.filter((report) =>
+      matchesItemFilters(
+        [report.item_name, report.last_known_location, report.description, report.category, report.color],
+        searchQuery,
+        selectedQuickFilter
+      )
+    );
+  }, [lostReports, searchQuery, selectedQuickFilter]);
+
+  const filteredFoundItems = useMemo(() => {
+    if (!searchQuery.trim() && !selectedQuickFilter) return foundItems;
+    return foundItems.filter((item) =>
+      matchesItemFilters(
+        [item.item_name, item.location_found, item.description, item.category, item.color],
+        searchQuery,
+        selectedQuickFilter
+      )
+    );
+  }, [foundItems, searchQuery, selectedQuickFilter]);
+
+  const recentPostings = useMemo(() => {
+    return filteredFoundItems.slice(0, 6);
+  }, [filteredFoundItems]);
+
+  const activeFilterLabel =
+    QUICK_FILTER_OPTIONS.find((opt) => opt.query === selectedQuickFilter)?.label || 'All Items';
 
   const firstName =
     user?.firstName ||
@@ -216,7 +294,6 @@ export default function StudentDashboardPage() {
     (user?.fullName?.includes(',') ? user.fullName.split(',')[1]?.trim() : user?.fullName?.split(' ')[0]) ||
     (user?.full_name?.includes(',') ? user.full_name.split(',')[1]?.trim() : user?.full_name?.split(' ')[0]) ||
     'Iskolar';
-  const myFoundCount = foundItems.filter((i) => i.finder_id === user?.id).length;
 
   // Helper to determine if a claim's item has completed turnover
   const isClaimFinalized = useCallback(
@@ -270,11 +347,10 @@ export default function StudentDashboardPage() {
 
   const totalActiveClaimsCount = activeIncomingClaims.length + activeMySubmittedClaims.length;
 
-  const tabs = [
-    { key: 'campus-feed', label: 'Campus Feed', count: foundItems.length },
-    { key: 'my-found', label: 'My Posts', count: myFoundCount },
-    { key: 'my-lost', label: 'My Reports', count: lostReports.length },
-    { key: 'claims-meetups', label: 'Claims & Meetups', count: totalActiveClaimsCount }
+  const activityTabs = [
+    { key: 'my-lost', label: 'My Lost Reports', count: lostReports.length },
+    { key: 'claims-meetups', label: 'Claims & Meetups', count: totalActiveClaimsCount },
+    { key: 'my-found', label: 'Items I Posted', count: myFoundCount }
   ];
 
   const handleApproveClaim = (claimId) => {
@@ -376,27 +452,20 @@ export default function StudentDashboardPage() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans pb-20 transition-colors duration-200">
       {/* ================= HERO ================= */}
-      <section className="relative w-full overflow-hidden bg-slate-950 text-white">
-        {/* Background with Ambient Radial Ambiance */}
+      <section className="relative w-full overflow-hidden bg-neutral-900 text-white">
+        {/* Background with Soft White/Grayish Mist Overlay */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <img
             src={campusBg}
             alt="PUP Biñan Campus"
-            className="w-full h-full object-cover object-center brightness-[0.32] saturate-[1.1] scale-[1.01]"
+            className="w-full h-full object-cover object-center brightness-[0.38] grayscale-[35%] scale-[1.01]"
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-slate-950/80 to-slate-950" />
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-red-950/20 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-neutral-900/45 via-neutral-900/65 to-neutral-950/90" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(255,255,255,0.14),transparent_65%)] pointer-events-none" />
         </div>
 
         <div className="relative z-10 max-w-5xl mx-auto px-5 sm:px-8 pt-12 pb-16 sm:pt-14 sm:pb-20">
           <div className="max-w-2xl">
-            {/* Campus Institutional Pill Badge */}
-            <div className="animate-fadeIn inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 text-[11px] font-medium text-slate-300 backdrop-blur-sm mb-4">
-              <span className="font-semibold text-white">PUP Biñan Campus</span>
-              <span className="text-slate-600 dark:text-slate-500">•</span>
-              <span className="text-slate-300">Peer-to-Peer Student Recovery</span>
-            </div>
-
             {/* Headline */}
             <h1 className="animate-fadeInUp text-3xl sm:text-[2.85rem] font-bold tracking-tight text-white leading-[1.15]">
               {isNewUser ? 'Welcome,' : 'Welcome back,'}<br />
@@ -404,7 +473,7 @@ export default function StudentDashboardPage() {
             </h1>
 
             {/* Student-Centered Subtext */}
-            <p className="animate-fadeInUp [animation-delay:100ms] text-sm sm:text-base text-slate-300/90 leading-relaxed max-w-xl mt-3.5">
+            <p className="animate-fadeInUp [animation-delay:100ms] text-sm sm:text-base text-neutral-200/90 leading-relaxed max-w-xl mt-3.5">
               Lost an item between lectures or found unattended property? Connect directly with fellow Iskolars and safely coordinate campus returns.
             </p>
 
@@ -413,7 +482,7 @@ export default function StudentDashboardPage() {
               <button
                 type="button"
                 onClick={() => setShowReportLostModal(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-theme hover:bg-theme-hover text-white text-sm font-semibold rounded-full border border-red-500/30 shadow-md shadow-red-950/40 transition-all duration-200 cursor-pointer active:scale-95"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-theme hover:bg-theme-hover text-white text-sm font-semibold rounded-full border border-red-500/30 shadow-md shadow-black/25 transition-all duration-200 cursor-pointer active:scale-95"
               >
                 <HelpCircle className="w-4 h-4 text-red-200" />
                 <span>Report Lost Item</span>
@@ -422,58 +491,22 @@ export default function StudentDashboardPage() {
               <button
                 type="button"
                 onClick={() => setShowPostFoundModal(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 hover:text-white text-sm font-semibold rounded-full border border-slate-700/80 hover:border-slate-600 transition-all duration-200 cursor-pointer active:scale-95 shadow-xs"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-100 hover:text-white text-sm font-semibold rounded-full border border-neutral-600/70 hover:border-neutral-500 transition-all duration-200 cursor-pointer active:scale-95 shadow-xs"
               >
-                <Camera className="w-4 h-4 text-slate-400" />
+                <Camera className="w-4 h-4 text-neutral-300" />
                 <span>Post Found Item</span>
               </button>
-            </div>
-
-            {/* Stats row without green dot */}
-            <div className="animate-fadeIn [animation-delay:240ms] mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-slate-200">{foundItems.length}</span>
-                <span>items logged</span>
-              </div>
-
-              <span className="w-px h-3 bg-slate-700/80" />
-
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-slate-200">{lostReports.length}</span>
-                <span>reports filed</span>
-              </div>
-
-              <span className="w-px h-3 bg-slate-700/80" />
-
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-slate-200">{activeUsersCount}</span>
-                <span>active users</span>
-              </div>
-
-              {unreadMatches.length > 0 && (
-                <>
-                  <span className="w-px h-3 bg-slate-700/80" />
-                  <button
-                    type="button"
-                    onClick={() => setShowNotifModal(true)}
-                    className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer text-xs"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{unreadMatches.length} match{unreadMatches.length > 1 ? 'es' : ''} found</span>
-                  </button>
-                </>
-              )}
             </div>
           </div>
         </div>
       </section>
 
-      {/* ================= SEARCH & QUICK FILTERS ================= */}
+      {/* ================= SEARCH & INTEGRATED FILTER DROPDOWN ================= */}
       <section className="max-w-5xl mx-auto px-5 sm:px-8 -mt-7 relative z-20">
         <ScrollReveal threshold={0.05} yOffset={16}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-lg shadow-slate-900/5 dark:shadow-none border border-slate-200/90 dark:border-slate-800/90 focus-within:border-slate-300 dark:focus-within:border-slate-700 focus-within:ring-2 focus-within:ring-slate-900/5 dark:focus-within:ring-white/5 transition-all duration-200 overflow-hidden">
-            {/* Search Input Bar */}
-            <div className="relative flex items-center px-4 py-2 sm:py-2.5">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-lg shadow-slate-900/5 dark:shadow-none border border-slate-200/90 dark:border-slate-800/90 focus-within:border-slate-300 dark:focus-within:border-slate-700 focus-within:ring-2 focus-within:ring-slate-900/5 dark:focus-within:ring-white/5 transition-all duration-200">
+            {/* Search Input Bar with Integrated Filter Dropdown */}
+            <div className="relative flex items-center px-3.5 sm:px-4 py-2 sm:py-2.5 gap-1.5">
               <div className="text-slate-400 dark:text-slate-500 pl-1 shrink-0">
                 <Search className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
               </div>
@@ -483,26 +516,99 @@ export default function StudentDashboardPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by item name, category, color, or location..."
-                className="w-full px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none bg-transparent"
+                className="w-full min-w-0 px-2 sm:px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none bg-transparent"
               />
-              {searchQuery ? (
+              {(searchQuery || selectedQuickFilter) ? (
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer mr-1"
-                  title="Clear search"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedQuickFilter('');
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
+                  title="Clear search & filter"
                 >
                   <X className="w-4 h-4" />
                 </button>
               ) : (
                 <kbd
-                  className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 rounded mr-2 pointer-events-none select-none"
+                  className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 rounded mr-1 pointer-events-none select-none shrink-0"
                   title="Press '/' or Cmd+K to search"
                 >
                   /
                 </kbd>
               )}
-              <span className="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-1 shrink-0" />
+
+              <span className="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-0.5 shrink-0" />
+
+              {/* Integrated Custom Filter Dropdown */}
+              <div ref={filterDropdownRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen((prev) => !prev)}
+                  aria-haspopup="listbox"
+                  aria-expanded={isFilterOpen}
+                  aria-label="Filter items by type"
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-150 cursor-pointer active:scale-[0.98] ${
+                    selectedQuickFilter
+                      ? 'bg-red-500/[0.08] dark:bg-red-500/[0.14] text-red-800 dark:text-red-300 border-red-500/25 dark:border-red-500/35 font-semibold'
+                      : isFilterOpen
+                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-600'
+                      : 'bg-slate-50/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border-slate-200/90 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <Filter
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      selectedQuickFilter ? 'text-theme' : 'text-slate-400 dark:text-slate-500'
+                    }`}
+                  />
+                  <span>{activeFilterLabel}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 shrink-0 text-slate-400 transition-transform duration-200 ${
+                      isFilterOpen ? 'rotate-180 text-slate-600 dark:text-slate-300' : ''
+                    }`}
+                  />
+                </button>
+
+                {isFilterOpen && (
+                  <div
+                    role="listbox"
+                    aria-label="Item filter options"
+                    className="absolute right-0 top-full mt-2 w-48 z-50 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/90 dark:border-slate-700/80 shadow-xl shadow-slate-900/10 dark:shadow-black/50 p-1.5 animate-popoverEnter"
+                  >
+                    {QUICK_FILTER_OPTIONS.map((opt, idx) => {
+                      const isSelected = selectedQuickFilter === opt.query;
+                      return (
+                        <div key={opt.label}>
+                          {idx === 1 && (
+                            <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                          )}
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setSelectedQuickFilter(opt.query);
+                              setIsFilterOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-red-500/[0.08] dark:bg-red-500/[0.14] text-red-800 dark:text-red-300 font-semibold'
+                                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 font-medium'
+                            }`}
+                          >
+                            <span>{opt.label}</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-theme shrink-0" />}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <span className="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-0.5 shrink-0" />
+
               <button
                 type="button"
                 onClick={() => loadData(true)}
@@ -513,48 +619,6 @@ export default function StudentDashboardPage() {
               >
                 <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               </button>
-            </div>
-
-            {/* Quick Search Tags Strip */}
-            <div className="px-4 py-2 bg-slate-50/70 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 w-full">
-                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 shrink-0 mr-1 select-none">
-                  Quick search:
-                </span>
-                {[
-                  { label: 'Calculator', query: 'Calculator' },
-                  { label: 'Student ID', query: 'ID' },
-                  { label: 'Tumbler', query: 'Tumbler' },
-                  { label: 'Keys', query: 'Keys' },
-                  { label: 'Umbrella', query: 'Umbrella' },
-                  { label: 'Earphones', query: 'Earphones' }
-                ].map((tag) => {
-                  const isActive = searchQuery === tag.query;
-                  return (
-                    <button
-                      key={tag.label}
-                      type="button"
-                      onClick={() => setSearchQuery((prev) => (prev === tag.query ? '' : tag.query))}
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-all duration-150 cursor-pointer shrink-0 ${
-                        isActive
-                          ? 'bg-theme text-white border border-red-500/30 shadow-xs'
-                          : 'bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-200/80 dark:border-slate-700/70 hover:border-slate-300 dark:hover:border-slate-600'
-                      }`}
-                    >
-                      {tag.label}
-                    </button>
-                  );
-                })}
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="ml-auto text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-medium transition cursor-pointer shrink-0 pl-2 select-none"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
             </div>
           </div>
         </ScrollReveal>
@@ -567,138 +631,233 @@ export default function StudentDashboardPage() {
             <button
               type="button"
               onClick={() => setShowNotifModal(true)}
-              className="w-full p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 flex items-center justify-between gap-4 cursor-pointer hover:bg-amber-100/80 dark:hover:bg-amber-950/50 transition-colors group text-left"
+              className="w-full p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 flex items-center justify-between gap-4 cursor-pointer hover:bg-emerald-100/70 dark:hover:bg-emerald-950/35 hover:border-emerald-300/80 dark:hover:border-emerald-700/60 transition-all duration-200 group text-left shadow-2xs"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4 h-4" />
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-emerald-400 border border-emerald-600/20 dark:border-emerald-500/30 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform duration-200">
+                  <SearchCheck className="w-5 h-5" />
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
                     {unreadMatches.length} potential match{unreadMatches.length > 1 ? 'es' : ''} found
                   </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    An item matching your report has been logged. Review to confirm.
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate">
+                    An item matching your report has been logged.
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 shrink-0 transition-colors" />
+              <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 shrink-0 group-hover:translate-x-0.5 transition-transform duration-200">
+                <span className="hidden sm:inline">View Match</span>
+                <ChevronRight className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
             </button>
           </ScrollReveal>
         </section>
       )}
 
-      {/* ================= INVENTORY FEED ================= */}
-      <section id="inventory-feed" className="max-w-5xl mx-auto px-5 sm:px-8 mt-8 scroll-mt-24">
-        {/* Tab bar */}
+      {/* ================= RECENT POSTINGS (3-6 ITEMS) ================= */}
+      <section className="max-w-5xl mx-auto px-5 sm:px-8 mt-10">
         <ScrollReveal threshold={0.05} yOffset={14}>
-          <div className="flex items-end justify-between border-b border-slate-200 dark:border-slate-800 mb-1">
-            <div className="flex items-center gap-0">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`relative px-4 py-3 text-sm font-medium transition-colors duration-200 cursor-pointer select-none ${
-                    activeTab === tab.key
-                      ? 'text-slate-900 dark:text-white'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span className={`ml-1.5 text-xs tabular-nums ${
-                    activeTab === tab.key
-                      ? 'text-slate-500 dark:text-slate-400'
-                      : 'text-slate-400 dark:text-slate-500'
-                  }`}>
-                    {tab.count}
-                  </span>
-                  {/* Active underline */}
-                  {activeTab === tab.key && (
-                    <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-theme rounded-full" />
-                  )}
-                </button>
-              ))}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                Recent Postings
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                {searchQuery || selectedQuickFilter
+                  ? `Showing results matching "${[
+                      QUICK_FILTER_OPTIONS.find((o) => o.query === selectedQuickFilter && o.query !== '')?.label,
+                      searchQuery.trim()
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}"`
+                  : '3 to 6 of the most recent postings on campus'}
+              </p>
             </div>
-
-            {/* Active filter chips (compact) */}
-            <div className="hidden sm:flex items-center gap-2 pb-2.5">
-              {selectedCategory !== 'All' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                  {selectedCategory}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCategory('All')}
-                    className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {searchQuery && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                  &quot;{searchQuery}&quot;
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToTab?.('inventory')}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-theme hover:underline transition-colors cursor-pointer self-start sm:self-auto group"
+            >
+              <span>Browse Full Inventory</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </button>
           </div>
         </ScrollReveal>
 
-        {/* Category pills */}
-        <ScrollReveal threshold={0.05} delay={40} yOffset={10}>
-          <div className="py-3 overflow-x-auto custom-scrollbar flex items-center gap-2">
-            {categories.map((cat) => {
-              const isSelected = selectedCategory === cat;
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs whitespace-nowrap transition-all duration-200 cursor-pointer ${
-                    isSelected
-                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold shadow-xs'
-                      : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200 font-medium'
-                  }`}
-                >
-                  {cat}
-                </button>
-              );
-            })}
-          </div>
-        </ScrollReveal>
-
-        {/* Shimmer bar when refreshing data in background */}
+        {/* Shimmer indicator when refreshing */}
         {refreshing && (
           <div className="w-full h-1 rounded-full shimmer-bg my-2 animate-fadeIn" />
         )}
 
-        {/* Feed content with Skeletons */}
+        {/* Postings Grid */}
         {loading ? (
-          <div className="mt-4">
-            {activeTab === 'my-lost' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Array.from({ length: 4 }).map((_, idx) => (
-                  <LostReportCardSkeleton key={idx} delay={idx * 60} />
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Array.from({ length: 6 }).map((_, idx) => (
-                  <ItemCardSkeleton key={idx} delay={idx * 50} />
-                ))}
-              </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <ItemCardSkeleton key={idx} delay={idx * 50} />
+            ))}
+          </div>
+        ) : recentPostings.length > 0 ? (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {recentPostings.map((item, idx) => {
+              const coverPhoto = item.photos?.[0]?.photo_url;
+              const badge = getStatusBadge(item.status);
+              return (
+                <ScrollReveal
+                  key={item.id}
+                  delay={(idx % 6) * 40}
+                  threshold={0.04}
+                  className="h-full"
+                >
+                  <div
+                    onClick={() => setSelectedItemForDetail(item)}
+                    className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-xs transition-all duration-200 flex flex-col overflow-hidden cursor-pointer h-full"
+                  >
+                    {/* Photo */}
+                    <div className="relative w-full aspect-[4/3] bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                      {coverPhoto ? (
+                        <img
+                          src={coverPhoto}
+                          alt={item.item_name}
+                          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300 ease-out"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 dark:text-slate-600">
+                          <Package className="w-8 h-8 stroke-[1.5]" />
+                          <span className="text-[11px] mt-1.5">No photo</span>
+                        </div>
+                      )}
+                      {/* Minimal status badge */}
+                      <div className="absolute top-2.5 right-2.5">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium tracking-tight bg-white/95 dark:bg-slate-900/95 border ${badge.className}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${badge.dotClass}`} />
+                          <span>{badge.label}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Details */}
+                    <div className="p-4 flex-1 flex flex-col justify-between">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-white line-clamp-1">
+                          {item.item_name}
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {item.category}
+                        </p>
+
+                        <div className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{item.location_found}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="w-3 h-3 shrink-0" />
+                            <span>{item.date_found}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-400 truncate max-w-[140px]">
+                          {getUserRoleTag(item.finder)}
+                        </span>
+                        <span className="text-xs font-medium text-theme flex items-center gap-0.5 group-hover:gap-1.5 transition-all duration-200">
+                          View Details
+                          <ArrowRight className="w-3 h-3" />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </ScrollReveal>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-4 py-16 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-white/50 dark:bg-slate-900/50">
+            <Package className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">No items found</h4>
+            <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+              {searchQuery || selectedQuickFilter
+                ? 'No items matched your current search or filter.'
+                : 'No items have been logged yet.'}
+            </p>
+            {(searchQuery || selectedQuickFilter) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedQuickFilter('');
+                }}
+                className="mt-3 px-3.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Clear Search &amp; Filter
+              </button>
             )}
           </div>
-        ) : activeTab === 'my-lost' ? (
-          /* ================= MY LOST REPORTS ================= */
-          <div className="mt-3">
+        )}
+
+        {/* View all in inventory footer button */}
+        <div className="mt-6 flex justify-center">
+          <button
+            type="button"
+            onClick={() => onNavigateToTab?.('inventory')}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+          >
+            <span>View all {foundItems.length} items in Campus Inventory</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </section>
+
+      {/* ================= YOUR CAMPUS ACTIVITY ================= */}
+      <section className="max-w-5xl mx-auto px-5 sm:px-8 mt-14">
+        <ScrollReveal threshold={0.05} yOffset={14}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                Your Campus Activity
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Track your reported lost belongings, claims, and handover receipts
+              </p>
+            </div>
+
+            {/* Activity tab buttons */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl self-start sm:self-auto">
+              {activityTabs.map((tab) => {
+                const isActive = activeActivityTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveActivityTab(tab.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 cursor-pointer select-none flex items-center gap-1.5 ${
+                      isActive
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs font-semibold'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${
+                        isActive
+                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </ScrollReveal>
+
+        {/* Tab 1: My Lost Reports */}
+        {activeActivityTab === 'my-lost' && (
+          <div className="mt-4">
             {displayedLostReports.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {displayedLostReports.map((report, idx) => (
@@ -708,9 +867,7 @@ export default function StudentDashboardPage() {
                     threshold={0.04}
                     className="h-full"
                   >
-                    <div
-                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200 flex flex-col justify-between h-full"
-                    >
+                    <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200 flex flex-col justify-between h-full">
                       <div className="space-y-3">
                         <div className="flex items-start justify-between gap-3">
                           <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
@@ -781,7 +938,7 @@ export default function StudentDashboardPage() {
                             <ArrowRight className="w-3 h-3" />
                           </button>
                         ) : (
-                          <span className="text-[11px] text-slate-400">Scanning...</span>
+                          <span className="text-[11px] text-slate-400">Scanning for matches...</span>
                         )}
                       </div>
                     </div>
@@ -789,26 +946,26 @@ export default function StudentDashboardPage() {
                 ))}
               </div>
             ) : (
-              <div className="py-24 text-center">
+              <div className="py-20 text-center border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900">
                 <FileText className="w-8 h-8 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">No reports yet</h4>
+                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">No reports filed yet</h4>
                 <p className="text-xs text-slate-500 mt-1.5 max-w-xs mx-auto leading-relaxed">
-                  {searchQuery || selectedCategory !== 'All'
-                    ? 'No reports match your filters. Try clearing them.'
-                    : 'Lost something? File a report and our system will notify you when a match appears.'}
+                  Lost something? File a report and our system will notify you the moment a match appears.
                 </p>
                 <button
                   type="button"
                   onClick={() => setShowReportLostModal(true)}
-                  className="mt-5 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  className="mt-5 px-4 py-2 text-xs font-semibold text-white bg-theme hover:bg-theme-hover rounded-full transition cursor-pointer"
                 >
-                  File a Report
+                  File a Lost Report
                 </button>
               </div>
             )}
           </div>
-        ) : activeTab === 'claims-meetups' ? (
-          /* ================= CLAIMS & MEETUPS WORKFLOW ================= */
+        )}
+
+        {/* Tab 2: Claims & Meetups */}
+        {activeActivityTab === 'claims-meetups' && (
           <div className="mt-4 space-y-8">
             {/* 1. Active Incoming Claims on Items You Found */}
             <div className="space-y-3">
@@ -986,7 +1143,7 @@ export default function StudentDashboardPage() {
               )}
             </div>
 
-            {/* 3. Declined & Rejected Claims (Separate Dedicated Section) */}
+            {/* 3. Declined & Rejected Claims */}
             {rejectedClaims.length > 0 && (
               <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <div>
@@ -1047,7 +1204,7 @@ export default function StudentDashboardPage() {
               </div>
             )}
 
-            {/* 4. Finalized Handover History & Audit Log (No Duplication) */}
+            {/* 4. Finalized Handover History & Audit Log */}
             {finalizedTransactions.length > 0 && (
               <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1097,7 +1254,7 @@ export default function StudentDashboardPage() {
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
                           {tx.post?.item_name || 'Returned Item'}
                         </span>
-                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] font-semibold text-sky-700 bg-sky-50 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 px-2.5 py-0.5 rounded-full">
                           Reunited
                         </span>
                       </div>
@@ -1134,31 +1291,33 @@ export default function StudentDashboardPage() {
               </div>
             )}
           </div>
-        ) : (
-          /* ================= FOUND ITEMS FEED ================= */
-          <div className="mt-3">
-            {displayedFoundItems.length > 0 ? (
+        )}
+
+        {/* Tab 3: Items I Posted */}
+        {activeActivityTab === 'my-found' && (
+          <div className="mt-4">
+            {myPostedItems.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {displayedFoundItems.map((item, idx) => {
+                {myPostedItems.map((item, idx) => {
                   const coverPhoto = item.photos?.[0]?.photo_url;
+                  const badge = getStatusBadge(item.status);
                   return (
                     <ScrollReveal
                       key={item.id}
-                      delay={(idx % 6) * 45}
+                      delay={(idx % 6) * 40}
                       threshold={0.04}
                       className="h-full"
                     >
                       <div
                         onClick={() => setSelectedItemForDetail(item)}
-                        className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md transition-all duration-200 flex flex-col overflow-hidden cursor-pointer h-full"
+                        className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-xs transition-all duration-200 flex flex-col overflow-hidden cursor-pointer h-full"
                       >
-                        {/* Photo */}
                         <div className="relative w-full aspect-[4/3] bg-slate-100 dark:bg-slate-800 overflow-hidden">
                           {coverPhoto ? (
                             <img
                               src={coverPhoto}
                               alt={item.item_name}
-                              className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300 ease-out"
+                              className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300 ease-out"
                             />
                           ) : (
                             <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 dark:text-slate-600">
@@ -1166,36 +1325,23 @@ export default function StudentDashboardPage() {
                               <span className="text-[11px] mt-1.5">No photo</span>
                             </div>
                           )}
-                          {/* Status badge */}
                           <div className="absolute top-2.5 right-2.5">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-medium tracking-tight bg-white/90 dark:bg-slate-900/90 backdrop-blur-md text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700/70 shadow-2xs">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 shrink-0" />
-                              <span>
-                                {item.status === 'AvailableForClaim' || !item.status || item.status === 'Available'
-                                  ? 'Available for Claim'
-                                  : item.status === 'ClaimUnderReview'
-                                  ? 'Under Review'
-                                  : item.status === 'CoordinatingHandover'
-                                  ? 'Handover'
-                                  : item.status}
-                              </span>
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium tracking-tight bg-white/95 dark:bg-slate-900/95 border ${badge.className}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${badge.dotClass}`} />
+                              <span>{badge.label}</span>
                             </span>
                           </div>
                         </div>
 
-                        {/* Details */}
                         <div className="p-4 flex-1 flex flex-col justify-between">
                           <div>
-                            <div className="flex items-start justify-between gap-2">
-                              <h4 className="text-sm font-semibold text-slate-900 dark:text-white line-clamp-1">
-                                {item.item_name}
-                              </h4>
-                            </div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            <h4 className="text-sm font-semibold text-slate-900 dark:text-white line-clamp-1">
+                              {item.item_name}
+                            </h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                               {item.category}
                             </p>
 
-                            {/* Meta */}
                             <div className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                               <div className="flex items-center gap-1.5">
                                 <MapPin className="w-3 h-3 shrink-0" />
@@ -1209,11 +1355,11 @@ export default function StudentDashboardPage() {
                           </div>
 
                           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-                            <span className="text-[11px] text-slate-400 truncate max-w-[140px]">
-                              {getUserRoleTag(item.finder)}
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              #{item.id?.slice(0, 8)}
                             </span>
                             <span className="text-xs font-medium text-theme flex items-center gap-0.5 group-hover:gap-1.5 transition-all duration-200">
-                              View
+                              Manage Post
                               <ArrowRight className="w-3 h-3" />
                             </span>
                           </div>
@@ -1224,30 +1370,24 @@ export default function StudentDashboardPage() {
                 })}
               </div>
             ) : (
-              <div className="py-24 text-center">
+              <div className="py-20 text-center border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900">
                 <Package className="w-8 h-8 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">No items found</h4>
+                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">You haven&apos;t posted any found items</h4>
                 <p className="text-xs text-slate-500 mt-1.5 max-w-xs mx-auto leading-relaxed">
-                  Try adjusting your search or category filter, or check back later.
+                  Found someone&apos;s lost belongings on campus? Post it here so the owner can securely claim it.
                 </p>
-                {(searchQuery || selectedCategory !== 'All') && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setSelectedCategory('All');
-                    }}
-                    className="mt-5 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                  >
-                    Clear Filters
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowPostFoundModal(true)}
+                  className="mt-5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-full hover:opacity-90 transition cursor-pointer"
+                >
+                  Post a Found Item
+                </button>
               </div>
             )}
           </div>
         )}
       </section>
-
       {/* ================= RECOVERY PROTOCOL ================= */}
       <section className="max-w-5xl mx-auto px-5 sm:px-8 mt-12 mb-8">
         <ScrollReveal threshold={0.05} yOffset={22}>

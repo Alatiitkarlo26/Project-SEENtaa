@@ -2,11 +2,18 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { itemService } from '../services/itemService';
 import { compressImage } from '../utils/imageCompressor';
-import { ITEM_CATEGORIES, CAMPUS_LOCATIONS, ITEM_CONDITIONS } from '../constants/itemPresets';
+import {
+  ITEM_CATEGORIES,
+  CAMPUS_LOCATIONS,
+  CAMPUS_LOCATION_GROUPS,
+  ITEM_CONDITIONS,
+  isCustomLocationPreset,
+  getCustomLocationPlaceholder,
+  resolveLocationValue
+} from '../constants/itemPresets';
 import {
   X,
   Upload,
-  Camera,
   Trash2,
   CheckCircle,
   AlertCircle,
@@ -113,10 +120,7 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
       return;
     }
 
-    const finalLocation =
-      formData.locationPreset === 'Other / Custom Location'
-        ? formData.customLocation.trim()
-        : formData.locationPreset;
+    const finalLocation = resolveLocationValue(formData.locationPreset, formData.customLocation);
 
     if (!finalLocation) {
       setError('Please specify the campus location where the item was found.');
@@ -172,31 +176,21 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
         aria-labelledby="modal-title"
       >
         {/* Modal Header */}
-        <div className="relative px-6 py-5 sm:px-8 sm:py-6 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-theme text-white flex items-center justify-center shadow-xs">
-              <Camera className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 id="modal-title" className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                  Post a Found Item
-                </h3>
-                <span className="hidden sm:inline-block text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-theme/10 text-theme border border-theme/20">
-                  P2P Custody
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Report an unattended belonging on campus so the owner can verify and claim it.
-              </p>
-            </div>
+        <div className="relative px-6 py-5 sm:px-8 sm:py-6 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h3 id="modal-title" className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              Post a Found Item
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Report an unattended belonging on campus so the owner can verify and claim it.
+            </p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="w-9 h-9 rounded-full bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 flex items-center justify-center transition cursor-pointer"
+            className="w-9 h-9 rounded-full bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
             aria-label="Close modal"
           >
             <X className="w-4 h-4" />
@@ -204,7 +198,7 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
         </div>
 
         {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5 max-h-[80vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
           {error && (
             <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-start gap-3 text-rose-800 dark:text-rose-200 text-xs sm:text-sm">
               <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
@@ -223,10 +217,12 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
           )}
 
           {/* Prevent False Claims Disclaimer */}
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200/80 dark:border-red-900/60 flex items-start gap-3">
-            <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-            <div className="text-xs text-red-900 dark:text-red-200 leading-relaxed">
-              <strong className="font-semibold block mb-0.5 text-red-950 dark:text-red-100">Don&apos;t reveal too much information</strong>
+          <div className="p-4 sm:p-4.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200/80 dark:border-red-900/60 flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <div className="text-xs sm:text-[13.5px] text-red-900 dark:text-red-200 leading-relaxed">
+              <strong className="text-sm sm:text-[15px] font-bold block mb-1 text-red-950 dark:text-red-100">
+                Don&apos;t reveal too much information
+              </strong>
               Avoid sharing unique details like stickers, wallpapers, or specific contents in your photos and description. Keep them as proof questions so you can verify the real owner.
             </div>
           </div>
@@ -297,22 +293,27 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
                 onChange={(e) => setFormData({ ...formData, locationPreset: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition appearance-none cursor-pointer"
               >
-                {CAMPUS_LOCATIONS.map((loc) => (
-                  <option key={loc} value={loc}>
-                    {loc}
-                  </option>
+                {CAMPUS_LOCATION_GROUPS.map((group) => (
+                  <optgroup key={group.branch} label={group.branch}>
+                    {group.locations.map((loc) => (
+                      <option key={loc.value} value={loc.value}>
+                        {loc.label}
+                      </option>
+                    ))}
+                    <option value={group.customValue}>{group.customLabel}</option>
+                  </optgroup>
                 ))}
               </select>
               <MapPin className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
             </div>
 
-            {formData.locationPreset === 'Other / Custom Location' && (
+            {isCustomLocationPreset(formData.locationPreset) && (
               <input
                 type="text"
                 required
                 value={formData.customLocation}
                 onChange={(e) => setFormData({ ...formData, customLocation: e.target.value })}
-                placeholder="Specify precise location (e.g. Room 304, Near Bench by Canteen)"
+                placeholder={getCustomLocationPlaceholder(formData.locationPreset)}
                 className="mt-2 w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition"
               />
             )}
@@ -331,7 +332,7 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
                   value={formData.dateFound}
                   max={new Date().toISOString().split('T')[0]}
                   onChange={(e) => setFormData({ ...formData, dateFound: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition"
+                  className="clean-picker-input w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition dark:[color-scheme:dark]"
                 />
                 <Calendar className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
               </div>
@@ -339,14 +340,14 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                Estimated Time (Optional)
+                Estimated Time
               </label>
               <div className="relative">
                 <input
                   type="time"
                   value={formData.timeFound}
                   onChange={(e) => setFormData({ ...formData, timeFound: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition"
+                  className="clean-picker-input w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition dark:[color-scheme:dark]"
                 />
                 <Clock className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
               </div>
@@ -357,7 +358,7 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                Color (Optional)
+                Color
               </label>
               <input
                 type="text"
@@ -370,7 +371,7 @@ export default function PostFoundItemModal({ isOpen, onClose, onItemPosted }) {
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                Size / Brand (Optional)
+                Size / Brand
               </label>
               <input
                 type="text"

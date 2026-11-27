@@ -2,18 +2,23 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { itemService } from '../services/itemService';
 import { compressImage } from '../utils/imageCompressor';
-import { ITEM_CATEGORIES, CAMPUS_LOCATIONS } from '../constants/itemPresets';
+import {
+  ITEM_CATEGORIES,
+  CAMPUS_LOCATIONS,
+  CAMPUS_LOCATION_GROUPS,
+  isCustomLocationPreset,
+  getCustomLocationPlaceholder,
+  resolveLocationValue
+} from '../constants/itemPresets';
 import {
   X,
   Upload,
   AlertCircle,
   CheckCircle,
-  FileText,
   Calendar,
   MapPin,
   Tag,
-  Trash2,
-  Sparkles
+  Trash2
 } from 'lucide-react';
 
 export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }) {
@@ -49,7 +54,7 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, loading, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || user?.role === 'admin') return null;
 
   const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -89,15 +94,17 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
       return;
     }
 
+    if (user.role === 'admin') {
+      setError('Administrators cannot file lost item reports.');
+      return;
+    }
+
     if (!formData.itemName.trim()) {
       setError('Please enter the name of your lost item.');
       return;
     }
 
-    const finalLocation =
-      formData.locationPreset === 'Other / Custom Location'
-        ? formData.customLocation.trim()
-        : formData.locationPreset;
+    const finalLocation = resolveLocationValue(formData.locationPreset, formData.customLocation);
 
     if (!finalLocation) {
       setError('Please specify the last known location of your item.');
@@ -151,31 +158,21 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
         aria-labelledby="lost-modal-title"
       >
         {/* Modal Header */}
-        <div className="relative px-6 py-5 sm:px-8 sm:py-6 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-theme text-white flex items-center justify-center shadow-xs">
-              <FileText className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 id="lost-modal-title" className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                  Report a Lost Item
-                </h3>
-                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-theme/10 text-theme border border-theme/20">
-                  <Sparkles className="w-3 h-3" /> Auto-Match Enabled
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                File a report to receive notifications when a matching belonging is turned in by a Finder.
-              </p>
-            </div>
+        <div className="relative px-6 py-5 sm:px-8 sm:py-6 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h3 id="lost-modal-title" className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              Report a Lost Item
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              File a report to receive notifications when a matching belonging is turned in by a Finder.
+            </p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="w-9 h-9 rounded-full bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 flex items-center justify-center transition cursor-pointer"
+            className="w-9 h-9 rounded-full bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
             aria-label="Close modal"
           >
             <X className="w-4 h-4" />
@@ -183,7 +180,7 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
         </div>
 
         {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5 max-h-[80vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
           {error && (
             <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-start gap-3 text-rose-800 dark:text-rose-200 text-xs sm:text-sm">
               <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
@@ -249,7 +246,7 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
                   value={formData.dateLost}
                   max={new Date().toISOString().split('T')[0]}
                   onChange={(e) => setFormData({ ...formData, dateLost: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition"
+                  className="clean-picker-input w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition dark:[color-scheme:dark]"
                 />
                 <Calendar className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
               </div>
@@ -267,22 +264,27 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
                 onChange={(e) => setFormData({ ...formData, locationPreset: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition appearance-none cursor-pointer"
               >
-                {CAMPUS_LOCATIONS.map((loc) => (
-                  <option key={loc} value={loc}>
-                    {loc}
-                  </option>
+                {CAMPUS_LOCATION_GROUPS.map((group) => (
+                  <optgroup key={group.branch} label={group.branch}>
+                    {group.locations.map((loc) => (
+                      <option key={loc.value} value={loc.value}>
+                        {loc.label}
+                      </option>
+                    ))}
+                    <option value={group.customValue}>{group.customLabel}</option>
+                  </optgroup>
                 ))}
               </select>
               <MapPin className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
             </div>
 
-            {formData.locationPreset === 'Other / Custom Location' && (
+            {isCustomLocationPreset(formData.locationPreset) && (
               <input
                 type="text"
                 required
                 value={formData.customLocation}
                 onChange={(e) => setFormData({ ...formData, customLocation: e.target.value })}
-                placeholder="Specify precise location (e.g. Near West Staircase, 2nd Floor Lab 3)"
+                placeholder={getCustomLocationPlaceholder(formData.locationPreset)}
                 className="mt-2 w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-theme transition"
               />
             )}
@@ -292,7 +294,7 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                Color (Optional)
+                Color
               </label>
               <input
                 type="text"
@@ -305,7 +307,7 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                Size / Brand / Model (Optional)
+                Size / Brand / Model
               </label>
               <input
                 type="text"
@@ -334,7 +336,7 @@ export default function ReportLostItemModal({ isOpen, onClose, onReportCreated }
           {/* Reference Photo */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-              Reference Photo (Optional)
+              Reference Photo
             </label>
             <p className="text-xs text-slate-500 mb-2">
               Upload a past photo of the item, serial receipt, or similar model for visual comparison (JPG, PNG, or WebP).

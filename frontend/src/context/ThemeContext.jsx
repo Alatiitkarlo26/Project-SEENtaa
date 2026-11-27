@@ -118,20 +118,21 @@ export function ThemeProvider({ children }) {
     const isSystemDarkNow = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const nextIsDark = newMode === 'dark' || (newMode === 'system' && isSystemDarkNow);
 
-    // If active appearance doesn't change or prefers reduced motion, toggle immediately
-    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (nextIsDark === isDark || prefersReducedMotion) {
+    // If active appearance doesn't change, toggle immediately
+    if (nextIsDark === isDark) {
       setSettings((prev) => ({ ...prev, mode: newMode }));
       return;
     }
 
-    // Determine circular origin (x, y) starting on the icon
+    // Determine circular origin (x, y) starting on the button itself
     let x = typeof window !== 'undefined' ? Math.round(window.innerWidth - 60) : 0;
     let y = 36;
 
     if (event) {
-      if (event.currentTarget && typeof event.currentTarget.getBoundingClientRect === 'function') {
-        const rect = event.currentTarget.getBoundingClientRect();
+      const el = event.currentTarget || event.target;
+      const btn = el && el.closest ? el.closest('button') : el;
+      if (btn && typeof btn.getBoundingClientRect === 'function') {
+        const rect = btn.getBoundingClientRect();
         x = Math.round(rect.left + rect.width / 2);
         y = Math.round(rect.top + rect.height / 2);
       } else if (typeof event.clientX === 'number' && event.clientX > 0) {
@@ -141,14 +142,23 @@ export function ThemeProvider({ children }) {
     }
 
     const endRadius = typeof window !== 'undefined'
-      ? Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))
-      : 1200;
+      ? Math.ceil(Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))) + 25
+      : 1400;
+
+    const root = typeof document !== 'undefined' ? document.documentElement : null;
 
     // 1. Modern View Transitions API with circular clipPath reveal
-    if (typeof document !== 'undefined' && document.startViewTransition) {
+    if (typeof document !== 'undefined' && document.startViewTransition && root) {
       isTransitioningRef.current = true;
       try {
         const transition = document.startViewTransition(() => {
+          // Synchronously toggle dark class on <html> so the snapshot immediately captures the new theme!
+          if (nextIsDark) {
+            root.classList.add('dark');
+          } else {
+            root.classList.remove('dark');
+          }
+
           flushSync(() => {
             setSettings((prev) => ({
               ...prev,
@@ -158,7 +168,8 @@ export function ThemeProvider({ children }) {
         });
 
         transition.ready.then(() => {
-          document.documentElement.animate(
+          // Fast, snappy, and silky-smooth circular expansion starting from the button itself
+          root.animate(
             {
               clipPath: [
                 `circle(0px at ${x}px ${y}px)`,
@@ -166,8 +177,8 @@ export function ThemeProvider({ children }) {
               ]
             },
             {
-              duration: 650,
-              easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+              duration: 380,
+              easing: 'cubic-bezier(0.2, 0, 0, 1)',
               pseudoElement: '::view-transition-new(root)'
             }
           );
@@ -183,37 +194,43 @@ export function ThemeProvider({ children }) {
       }
     }
 
-    // 2. Pure JavaScript Ripple Fallback (For browsers without View Transitions)
-    if (typeof document !== 'undefined') {
+    // 2. Fast Circular Ripple Fallback (For browsers without View Transitions)
+    if (typeof document !== 'undefined' && root) {
       isTransitioningRef.current = true;
       const ripple = document.createElement('div');
       ripple.className = 'theme-circle-ripple';
       ripple.style.position = 'fixed';
       ripple.style.left = `${x}px`;
       ripple.style.top = `${y}px`;
-      ripple.style.width = '24px';
-      ripple.style.height = '24px';
+      ripple.style.width = '12px';
+      ripple.style.height = '12px';
       ripple.style.borderRadius = '50%';
       ripple.style.transform = 'translate(-50%, -50%) scale(1)';
-      ripple.style.backgroundColor = nextIsDark ? '#090d16' : '#f8fafc';
+      ripple.style.backgroundColor = nextIsDark ? '#0a0a0a' : '#f8fafc';
       ripple.style.zIndex = '999999';
       ripple.style.pointerEvents = 'none';
-      ripple.style.boxShadow = nextIsDark ? '0 0 25px rgba(0,0,0,0.5)' : '0 0 25px rgba(255,255,255,0.7)';
-      ripple.style.transition = 'transform 600ms cubic-bezier(0.16, 1, 0.3, 1), opacity 250ms ease';
+      ripple.style.transition = 'transform 360ms cubic-bezier(0.2, 0, 0, 1), opacity 150ms ease';
       document.body.appendChild(ripple);
 
-      requestAnimationFrame(() => {
-        const scale = (endRadius * 2.2) / 24;
-        ripple.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      // Force synchronous reflow so animation starts immediately
+      void ripple.offsetWidth;
+
+      const scale = (endRadius * 2.2) / 12;
+      ripple.style.transform = `translate(-50%, -50%) scale(${scale})`;
+
+      setTimeout(() => {
+        if (nextIsDark) {
+          root.classList.add('dark');
+        } else {
+          root.classList.remove('dark');
+        }
+        setSettings((prev) => ({ ...prev, mode: newMode }));
+        ripple.style.opacity = '0';
         setTimeout(() => {
-          setSettings((prev) => ({ ...prev, mode: newMode }));
-          ripple.style.opacity = '0';
-          setTimeout(() => {
-            if (ripple.parentNode) ripple.remove();
-            isTransitioningRef.current = false;
-          }, 300);
-        }, 450);
-      });
+          if (ripple.parentNode) ripple.remove();
+          isTransitioningRef.current = false;
+        }, 160);
+      }, 300);
       return;
     }
 

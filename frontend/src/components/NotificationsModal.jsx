@@ -3,15 +3,55 @@ import { useAuth } from '../context/AuthContext';
 import { itemService } from '../services/itemService';
 import {
   X,
-  Bell,
   CheckCheck,
   CheckCircle2,
   Clock,
-  Sparkles,
+  SearchCheck,
   ShieldCheck,
   AlertCircle,
   ChevronRight
 } from 'lucide-react';
+
+function stripEmojis(str) {
+  if (!str) return '';
+  return str
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F]/gu, '')
+    .replace(/\bHANDOVER_CONFIRMED\b/g, 'Handover')
+    .replace(/\bHANDOVER_SCHEDULED\b/g, 'Handover')
+    .replace(/\bCLAIM_SUBMITTED\b/g, 'Claim')
+    .replace(/\bCLAIM_APPROVED\b/g, 'Claim')
+    .replace(/\bCLAIM_REJECTED\b/g, 'Claim')
+    .replace(/\bDISPUTE_FILED\b/g, 'Dispute')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatNotificationType(type) {
+  if (!type) return 'Notice';
+  const upper = String(type).toUpperCase();
+  if (upper.includes('HANDOVER')) return 'Handover';
+  if (upper.includes('CLAIM')) return 'Claim';
+  if (upper.includes('MATCH')) return 'Match';
+  if (upper.includes('DISPUTE')) return 'Dispute';
+  return 'Notice';
+}
+
+function getNotificationBadgeStyle(type) {
+  const upper = String(type || '').toUpperCase();
+  if (upper.includes('MATCH')) {
+    return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+  }
+  if (upper.includes('HANDOVER')) {
+    return 'bg-teal-500/10 text-teal-600 dark:text-teal-400';
+  }
+  if (upper.includes('CLAIM')) {
+    return 'bg-sky-500/10 text-sky-600 dark:text-sky-400';
+  }
+  if (upper.includes('DISPUTE')) {
+    return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+  }
+  return 'bg-slate-500/10 text-slate-500 dark:text-slate-400';
+}
 
 function formatRelativeTime(dateString) {
   try {
@@ -49,7 +89,7 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
     const updatePosition = () => {
       if (anchorRef?.current) {
         const rect = anchorRef.current.getBoundingClientRect();
-        const cardWidth = Math.min(410, window.innerWidth - 24);
+        const cardWidth = Math.min(450, window.innerWidth - 24);
         const maxAllowedRight = Math.max(12, window.innerWidth - cardWidth - 12);
         const naturalRight = window.innerWidth - rect.right;
         const clampedRight = Math.max(12, Math.min(naturalRight, maxAllowedRight));
@@ -164,51 +204,39 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
                 maxHeight: 'calc(100vh - 84px)'
               }
         }
-        className="fixed z-50 w-[calc(100vw-24px)] sm:w-[410px] max-w-[420px] bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl shadow-slate-900/15 dark:shadow-black/70 overflow-hidden animate-popoverEnter flex flex-col transition-colors duration-200"
+        className="fixed z-50 w-[calc(100vw-24px)] sm:w-[450px] max-w-[460px] bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl shadow-slate-900/15 dark:shadow-black/70 overflow-hidden animate-popoverEnter flex flex-col transition-colors duration-200"
       >
         {/* Header Bar */}
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/40 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-              <Bell className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3
-                  id="notif-popover-title"
-                  className="text-sm font-bold text-slate-900 dark:text-white tracking-tight leading-tight"
-                >
-                  Notifications
-                </h3>
-                {unreadCount > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-white">
-                    {unreadCount}
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                Real-time matches, claim updates, and alerts
-              </p>
-            </div>
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/40 shrink-0 gap-3">
+          <div className="min-w-0">
+            <h3
+              id="notif-popover-title"
+              className="text-base font-bold text-slate-900 dark:text-white tracking-tight leading-tight"
+            >
+              Notifications
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug truncate">
+              Real-time matches, claim updates, and alerts
+            </p>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 shrink-0">
             {unreadCount > 0 && (
               <button
                 type="button"
                 onClick={handleMarkAllRead}
-                className="px-2 py-1 text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 active:scale-95"
+                className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-700/70 transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95 shrink-0 whitespace-nowrap"
                 title="Mark all as read"
               >
-                <CheckCheck className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Mark all</span>
+                <CheckCheck className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                <span>Mark all</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={onClose}
-              className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-90"
+              className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-90 shrink-0"
               title="Close"
               aria-label="Close notifications"
             >
@@ -254,9 +282,9 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
         )}
 
         {/* Scrollable Notification List */}
-        <div className="overflow-y-auto custom-scrollbar flex-1 divide-y divide-slate-100 dark:divide-slate-800/60 max-h-[380px]">
+        <div className="overflow-y-auto custom-scrollbar flex-1 p-3 space-y-2.5 max-h-[390px]">
           {error && (
-            <div className="m-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+            <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -265,7 +293,7 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
           {loading ? (
             <div className="py-12 text-center text-slate-400">
               <div className="w-5 h-5 border-2 border-theme border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-              <p className="text-xs font-medium">Checking alerts...</p>
+              <p className="text-xs font-medium">Checking notifications...</p>
             </div>
           ) : filteredNotifications.length === 0 ? (
             <div className="py-12 px-6 text-center">
@@ -277,15 +305,12 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
               </h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 max-w-[260px] mx-auto leading-relaxed">
                 {filter === 'unread'
-                  ? 'You have viewed all incoming alerts.'
-                  : "You will be alerted here when an item matching your lost report is found or logged on campus."}
+                  ? 'You have viewed all incoming notifications.'
+                  : "You will be notified here when an item matching your lost report is found or logged on campus."}
               </p>
             </div>
           ) : (
             filteredNotifications.map((notif) => {
-              const isMatch = notif.type === 'MATCH';
-              const isClaim = notif.type === 'CLAIM';
-
               return (
                 <div
                   key={notif.id}
@@ -295,45 +320,41 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
                       onViewItem(notif.reference_id);
                     }
                   }}
-                  className={`p-4 transition-all duration-150 cursor-pointer flex items-start gap-3 group active:scale-[0.99] ${
-                    notif.is_read
-                      ? 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40 text-slate-600 dark:text-slate-400'
-                      : 'bg-amber-500/[0.03] dark:bg-amber-500/[0.05] hover:bg-amber-500/[0.07] text-slate-900 dark:text-white'
-                  }`}
+                  className="relative group cursor-pointer"
                 >
-                  {/* Category Glyph Icon */}
+                  {/* Subtle red glow strictly behind the unread box */}
+                  {!notif.is_read && (
+                    <div
+                      aria-hidden="true"
+                      className="absolute -inset-0.5 rounded-2xl bg-red-500/20 dark:bg-red-500/25 blur-sm pointer-events-none group-hover:bg-red-500/30 transition-all duration-200"
+                    />
+                  )}
+
+                  {/* Clean notification box on top/in front of the glow */}
                   <div
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 transition-transform group-hover:scale-105 ${
-                      isMatch
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                        : isClaim
-                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                    className={`relative p-3.5 rounded-2xl border transition-all duration-200 flex flex-col gap-1.5 active:scale-[0.99] ${
+                      notif.is_read
+                        ? 'bg-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-slate-200/50 dark:border-slate-800/50 text-slate-600 dark:text-slate-400'
+                        : 'bg-white dark:bg-slate-900 hover:bg-slate-50/90 dark:hover:bg-slate-850/90 border-slate-200/80 dark:border-slate-800 text-slate-900 dark:text-white'
                     }`}
                   >
-                    {isMatch ? (
-                      <Sparkles className="w-4 h-4" />
-                    ) : isClaim ? (
-                      <ShieldCheck className="w-4 h-4" />
-                    ) : (
-                      <Bell className="w-4 h-4" />
-                    )}
-                  </div>
-
-                  {/* Notification Content */}
-                  <div className="flex-1 min-w-0">
+                    {/* Top Row: Type Tag, Relative Time & Unread Indicator */}
                     <div className="flex items-center justify-between gap-2">
-                      <span
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                          isMatch
-                            ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60'
-                            : isClaim
-                            ? 'bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                        }`}
-                      >
-                        {isMatch ? 'Match Alert' : isClaim ? 'Claim Update' : notif.type}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-[10px] font-medium px-2 py-0.5 rounded-full leading-none tracking-normal ${getNotificationBadgeStyle(
+                            notif.type
+                          )}`}
+                        >
+                          {formatNotificationType(notif.type)}
+                        </span>
+                        {!notif.is_read && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"
+                            title="Unread"
+                          />
+                        )}
+                      </div>
 
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium flex items-center gap-1 shrink-0">
                         <Clock className="w-3 h-3" />
@@ -341,29 +362,24 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
                       </span>
                     </div>
 
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-1 group-hover:text-theme transition-colors leading-tight">
-                      {notif.title}
-                    </h4>
+                    {/* Notification Content without emojis */}
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-theme transition-colors leading-snug">
+                        {stripEmojis(notif.title)}
+                      </h4>
 
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                      {notif.message}
-                    </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                        {stripEmojis(notif.message)}
+                      </p>
+                    </div>
 
                     {notif.reference_id && (
-                      <div className="mt-2 text-[11px] font-semibold text-theme inline-flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                        <span>Inspect matching item</span>
+                      <div className="pt-0.5 text-[11px] font-semibold text-theme inline-flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                        <span>{notif.type === 'MATCH' ? 'View match' : 'View details'}</span>
                         <ChevronRight className="w-3 h-3" />
                       </div>
                     )}
                   </div>
-
-                  {/* Unread dot indicator */}
-                  {!notif.is_read && (
-                    <span
-                      className="w-2 h-2 rounded-full bg-theme shrink-0 mt-2 shadow-2xs"
-                      title="Unread"
-                    />
-                  )}
                 </div>
               );
             })
@@ -373,7 +389,7 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
         {/* Footer Bar */}
         <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
           <span className="font-medium">
-            {unreadCount > 0 ? `${unreadCount} unread alert${unreadCount > 1 ? 's' : ''}` : 'All caught up'}
+            {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}` : 'All caught up'}
           </span>
 
           <button
