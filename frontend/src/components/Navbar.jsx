@@ -139,14 +139,25 @@ export default function Navbar({ activeTab, setActiveTab }) {
     const type = notif.type;
 
     if (type === 'MATCH') {
-      setActiveNav('inventory');
-      setActiveTab('inventory', { targetItemId: refId });
+      if (refId && typeof refId === 'string' && refId.startsWith('lost_')) {
+        setActiveNav('campus-activity');
+        setActiveTab('campus-activity', { subTab: 'my-lost', targetReportId: refId, action: 'report' });
+      } else {
+        setActiveNav('inventory');
+        setActiveTab('inventory', { targetItemId: refId });
+      }
     } else if (type === 'CLAIM_APPROVED') {
       setActiveNav('campus-activity');
-      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId });
-    } else if (type === 'CLAIM_SUBMITTED' || type === 'CLAIM_REJECTED' || type === 'HANDOVER_CONFIRMED') {
+      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId, action: 'chat' });
+    } else if (type === 'CLAIM_SUBMITTED') {
       setActiveNav('campus-activity');
-      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId });
+      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId, action: 'review' });
+    } else if (type === 'CLAIM_REJECTED') {
+      setActiveNav('campus-activity');
+      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId, action: 'rejected' });
+    } else if (type === 'HANDOVER_CONFIRMED') {
+      setActiveNav('campus-activity');
+      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetTxId: refId, action: 'finalized' });
     } else if (type === 'DISPUTE_UPDATE') {
       if (role === 'admin') {
         setActiveNav('admin-dashboard');

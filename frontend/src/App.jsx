@@ -20,11 +20,18 @@ function MainContent() {
   const { role, isAuthenticated, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('student-dashboard');
   const [policyInitialTab, setPolicyInitialTab] = useState('terms');
-  const [inventoryTargetId, setInventoryTargetId] = useState(null);
+  const [inventoryTargetOptions, setInventoryTargetOptions] = useState({
+    targetItemId: null,
+    dispatchKey: null
+  });
   const [activityOptions, setActivityOptions] = useState({
     subTab: 'claims-meetups',
     targetClaimId: null,
-    targetPostId: null
+    targetTxId: null,
+    targetReportId: null,
+    targetPostId: null,
+    action: null,
+    dispatchKey: null
   });
 
   // Navigation dispatcher with optional payload/subtab
@@ -33,13 +40,20 @@ function MainContent() {
       setPolicyInitialTab(typeof options === 'string' ? options : 'terms');
     } else if (tab === 'inventory') {
       const targetId = typeof options === 'object' && options ? options.targetItemId : null;
-      setInventoryTargetId(targetId || null);
+      setInventoryTargetOptions({
+        targetItemId: targetId || null,
+        dispatchKey: Date.now() + Math.random()
+      });
     } else if (tab === 'campus-activity') {
       const opts = typeof options === 'object' && options ? options : {};
       setActivityOptions({
         subTab: opts.subTab || (typeof options === 'string' && options !== 'terms' ? options : 'claims-meetups'),
         targetClaimId: opts.targetClaimId || null,
-        targetPostId: opts.targetPostId || null
+        targetTxId: opts.targetTxId || null,
+        targetReportId: opts.targetReportId || null,
+        targetPostId: opts.targetPostId || null,
+        action: opts.action || null,
+        dispatchKey: Date.now() + Math.random()
       });
     }
 
@@ -131,7 +145,11 @@ function MainContent() {
           <CampusActivityPage
             initialTab={activityOptions.subTab}
             targetClaimId={activityOptions.targetClaimId}
+            targetTxId={activityOptions.targetTxId}
+            targetReportId={activityOptions.targetReportId}
             targetPostId={activityOptions.targetPostId}
+            targetAction={activityOptions.action}
+            dispatchKey={activityOptions.dispatchKey}
             onNavigateToTab={handleNavigate}
           />
         )}
@@ -139,7 +157,8 @@ function MainContent() {
         {currentTab === 'inventory' && (
           <InventoryPage
             onNavigateToTab={handleNavigate}
-            targetItemId={inventoryTargetId}
+            targetItemId={inventoryTargetOptions.targetItemId}
+            dispatchKey={inventoryTargetOptions.dispatchKey}
           />
         )}
 

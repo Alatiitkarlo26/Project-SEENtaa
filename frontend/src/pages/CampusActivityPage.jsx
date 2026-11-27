@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useSystemDialog } from '../context/SystemDialogContext';
 import { itemService } from '../services/itemService';
@@ -71,13 +71,19 @@ function getStatusBadge(status) {
 export default function CampusActivityPage({
   initialTab = 'claims-meetups',
   targetClaimId = null,
+  targetTxId = null,
+  targetReportId = null,
   targetPostId = null,
+  targetAction = null,
+  dispatchKey = null,
   onNavigateToTab
 }) {
   const { user } = useAuth();
   const { showConfirm, showToast, showAlert } = useSystemDialog();
 
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [highlightedId, setHighlightedId] = useState(null);
+  const handledDispatchKeyRef = useRef(null);
 
   // Sync activeTab when initialTab prop updates
   useEffect(() => {
@@ -162,28 +168,77 @@ export default function CampusActivityPage({
     };
   }, [loadData]);
 
-  // If a target claim ID was specified (e.g. from notification click), open it in Meetup Chat
+  // Process target notification redirection safely once per dispatchKey
   useEffect(() => {
-    if (targetClaimId && (claimsOnMyPosts.length > 0 || mySubmittedClaims.length > 0)) {
+    if (!dispatchKey || handledDispatchKeyRef.current === dispatchKey) return;
+    if (loading) return; // Wait until initial data or refresh completes
+
+    handledDispatchKeyRef.current = dispatchKey;
+
+    if (targetAction === 'chat' && targetClaimId) {
+      // Find the approved claim to open Meetup Chat
       const all = [...claimsOnMyPosts, ...mySubmittedClaims];
       const match = all.find((c) => c.id === targetClaimId || c.post_id === targetClaimId);
       if (match) {
+        setActiveTab('claims-meetups');
         setActiveChatClaim(match);
         setShowChatModal(true);
-        setActiveTab('claims-meetups');
       }
-    }
-  }, [targetClaimId, claimsOnMyPosts, mySubmittedClaims]);
-
-  // If a target post ID was specified, open its item detail
-  useEffect(() => {
-    if (targetPostId && foundItems.length > 0) {
+    } else if ((targetAction === 'review' || targetAction === 'rejected') && targetClaimId) {
+      // Review claim or inspect rejected claim: switch to tab and scroll to element
+      setActiveTab('claims-meetups');
+      setHighlightedId(targetClaimId);
+      setTimeout(() => {
+        const el = document.getElementById(`claim-${targetClaimId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 120);
+      setTimeout(() => setHighlightedId(null), 3500);
+    } else if (targetTxId || targetAction === 'finalized') {
+      // Handover finalized: switch to tab and scroll to the completed transaction
+      const txId = targetTxId || targetClaimId;
+      setActiveTab('claims-meetups');
+      setHighlightedId(txId);
+      setTimeout(() => {
+        const el = document.getElementById(`tx-${txId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 120);
+      setTimeout(() => setHighlightedId(null), 3500);
+    } else if (targetReportId || targetAction === 'report') {
+      // Missing report: switch to lost tab and scroll to report
+      const rId = targetReportId || targetClaimId;
+      setActiveTab('my-lost');
+      setHighlightedId(rId);
+      setTimeout(() => {
+        const el = document.getElementById(`report-${rId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 120);
+      setTimeout(() => setHighlightedId(null), 3500);
+    } else if (targetPostId) {
       const match = foundItems.find((f) => f.id === targetPostId);
       if (match) {
         setSelectedItemForDetail(match);
       }
     }
-  }, [targetPostId, foundItems]);
+  }, [
+    dispatchKey,
+    loading,
+    targetAction,
+    targetClaimId,
+    targetTxId,
+    targetReportId,
+    targetPostId,
+    claimsOnMyPosts,
+    mySubmittedClaims,
+    transactions,
+    lostReports,
+    foundItems
+  ]);
 
   // Helper to determine if a claim's item has completed turnover
   const isClaimFinalized = useCallback(
@@ -439,7 +494,10 @@ export default function CampusActivityPage({
                 {activeIncomingClaims.map((claim) => (
                   <div
                     key={claim.id}
-                    className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4 shadow-2xs"
+                    id={`claim-${claim.id}`}
+                    className={`p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4 shadow-2xs transition-all duration-300 ${
+                      highlightedId === claim.id ? 'ring-4 ring-amber-500/80 shadow-2xl scale-[1.01]' : ''
+                    }`}
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
@@ -542,7 +600,10 @@ export default function CampusActivityPage({
                 {activeMySubmittedClaims.map((claim) => (
                   <div
                     key={claim.id}
-                    className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4 shadow-2xs"
+                    id={`claim-${claim.id}`}
+                    className={`p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between space-y-4 shadow-2xs transition-all duration-300 ${
+                      highlightedId === claim.id ? 'ring-4 ring-blue-500/80 shadow-2xl scale-[1.01]' : ''
+                    }`}
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
@@ -619,7 +680,10 @@ export default function CampusActivityPage({
                 {rejectedClaims.map((claim) => (
                   <div
                     key={claim.id}
-                    className="p-5 rounded-2xl border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/20 dark:bg-rose-950/20 flex flex-col justify-between space-y-3"
+                    id={`claim-${claim.id}`}
+                    className={`p-5 rounded-2xl border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/20 dark:bg-rose-950/20 flex flex-col justify-between space-y-3 transition-all duration-300 ${
+                      highlightedId === claim.id ? 'ring-4 ring-rose-500/90 shadow-2xl scale-[1.01]' : ''
+                    }`}
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
@@ -704,7 +768,10 @@ export default function CampusActivityPage({
                 {finalizedTransactions.map((tx) => (
                   <div
                     key={tx.id}
-                    className="p-5 rounded-2xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 text-xs space-y-3"
+                    id={`tx-${tx.id}`}
+                    className={`p-5 rounded-2xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 text-xs space-y-3 transition-all duration-300 ${
+                      highlightedId === tx.id ? 'ring-4 ring-emerald-500/90 shadow-2xl scale-[1.01]' : ''
+                    }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-sm text-slate-900 dark:text-white">
@@ -765,7 +832,12 @@ export default function CampusActivityPage({
                   threshold={0.04}
                   className="h-full"
                 >
-                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200 flex flex-col justify-between h-full">
+                  <div
+                    id={`report-${report.id}`}
+                    className={`p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-300 flex flex-col justify-between h-full ${
+                      highlightedId === report.id ? 'ring-4 ring-red-500/90 shadow-2xl scale-[1.01]' : ''
+                    }`}
+                  >
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-3">
                         <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">

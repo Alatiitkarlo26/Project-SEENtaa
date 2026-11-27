@@ -238,15 +238,28 @@ export default function StudentDashboardPage({ onNavigateToTab }) {
   };
 
   // Inspect item from notification
-  const handleViewNotificationItem = async (referenceId) => {
-    try {
-      setShowNotifModal(false);
-      const post = await itemService.getFoundPostById(referenceId);
-      if (post) {
-        setSelectedItemForDetail(post);
+  const handleViewNotificationItem = async (notif) => {
+    setShowNotifModal(false);
+    if (!notif) return;
+    const refId = notif.reference_id || notif.referenceId || (typeof notif === 'string' ? notif : null);
+    const type = notif.type || 'MATCH';
+
+    if (type === 'MATCH') {
+      if (refId && typeof refId === 'string' && refId.startsWith('lost_')) {
+        onNavigateToTab?.('campus-activity', { subTab: 'my-lost', targetReportId: refId, action: 'report' });
+      } else {
+        onNavigateToTab?.('inventory', { targetItemId: refId });
       }
-    } catch {
-      // ignore
+    } else if (type === 'CLAIM_APPROVED') {
+      onNavigateToTab?.('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId, action: 'chat' });
+    } else if (type === 'CLAIM_SUBMITTED') {
+      onNavigateToTab?.('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId, action: 'review' });
+    } else if (type === 'CLAIM_REJECTED') {
+      onNavigateToTab?.('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId, action: 'rejected' });
+    } else if (type === 'HANDOVER_CONFIRMED') {
+      onNavigateToTab?.('campus-activity', { subTab: 'claims-meetups', targetTxId: refId, action: 'finalized' });
+    } else {
+      onNavigateToTab?.('campus-activity', { subTab: 'claims-meetups' });
     }
   };
 

@@ -56,11 +56,12 @@ function getStatusBadge(status) {
   }
 }
 
-export default function InventoryPage({ onNavigateToTab, targetItemId = null }) {
+export default function InventoryPage({ onNavigateToTab, targetItemId = null, dispatchKey = null }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const handledItemDispatchRef = useRef(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'available' | 'reunited' | 'handover' | 'disputed'
@@ -96,15 +97,18 @@ export default function InventoryPage({ onNavigateToTab, targetItemId = null }) 
     loadItems();
   }, [loadItems]);
 
-  // Open item modal if targeted by notification
+  // Open item modal once if targeted by notification
   useEffect(() => {
+    if (!dispatchKey || handledItemDispatchRef.current === dispatchKey) return;
+    if (loading) return;
     if (targetItemId && items.length > 0) {
+      handledItemDispatchRef.current = dispatchKey;
       const match = items.find((it) => it.id === targetItemId);
       if (match) {
         setSelectedItemForDetail(match);
       }
     }
-  }, [targetItemId, items]);
+  }, [dispatchKey, targetItemId, items, loading]);
 
   // Counts per status category
   const statusCounts = useMemo(() => {
