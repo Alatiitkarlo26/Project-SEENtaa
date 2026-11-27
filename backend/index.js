@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import dns from 'dns';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -1524,6 +1525,19 @@ app.post('/api/feedback', async (req, res) => {
     res.status(500).json({ success: false, error: err.message || 'Failed to submit feedback.' });
   }
 });
+
+// -------------------------------------------------------------
+// Production Static Serving for Monorepo / Single-Service Hosting
+// (e.g. Render, Railway, Heroku, Docker)
+// -------------------------------------------------------------
+const frontendDistPath = path.join(__dirname, '../frontend/dist');
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+}
 
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {

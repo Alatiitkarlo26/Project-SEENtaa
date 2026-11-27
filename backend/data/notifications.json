@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "id": "notif_1795788736919_hapd0",
+    "user_id": "usr_1795787610923",
+    "title": "🏛️ [PUP Biñan Campus Security] Safe-Exchange Custody Verification - Item: \"HyperX Cloud III - Gaming Headset\"",
+    "message": "Mabuhay,\n\nThis is an official administrative notice from the PUP Biñan Campus Security Office regarding \"HyperX Cloud III - Gaming Headset\".\n\nPlease coordinate with the Campus Security Desk on the Ground Floor at your earliest convenience.\n\nOffice of Campus Security\nPolytechnic University of the Philippines — Biñan Campus",
+    "type": "ADMIN_NOTICE",
+    "reference_id": "found_1795788033146_wjdq3",
+    "is_read": false,
+    "created_at": "2026-11-27T14:12:16.919Z"
+  },
+  {
+    "id": "notif_1795788719572_7mijh",
+    "user_id": "usr_1795788225469",
+    "title": "🏛️ [PUP Biñan Campus Security] Safe-Exchange Custody Verification - Item: \"Wallet\"",
+    "message": "ANO YUNG PASSWORD NYAN",
+    "type": "ADMIN_NOTICE",
+    "reference_id": "found_1795788650168_w86ex",
+    "is_read": false,
+    "created_at": "2026-11-27T14:11:59.572Z"
+  }
+]
