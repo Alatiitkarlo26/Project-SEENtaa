@@ -1019,6 +1019,17 @@ app.put('/api/notifications/read-all', async (req, res) => {
   }
 });
 
+// 4. Delete a specific notification
+app.delete('/api/notifications/:id', async (req, res) => {
+  try {
+    await db.deleteNotification(req.params.id);
+    res.json({ success: true, message: 'Notification deleted.' });
+  } catch (err) {
+    console.error('Error deleting notification:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to delete notification.' });
+  }
+});
+
 // =========================================================================
 // PROOF OF OWNERSHIP CLAIMS ENDPOINTS (FR-SEEN-0004, UC-004)
 // =========================================================================

@@ -6,6 +6,7 @@ import pupLogoImg from '../assets/PUP-Logo.png';
 import AccessibilityModal from './AccessibilityModal';
 import NotificationsModal from './NotificationsModal';
 import ReportLostItemModal from './ReportLostItemModal';
+import PostFoundItemModal from './PostFoundItemModal';
 import { itemService } from '../services/itemService';
 import {
   LogOut,
@@ -24,6 +25,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
   const [isA11yModalOpen, setIsA11yModalOpen] = useState(false);
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isPostFoundModalOpen, setIsPostFoundModalOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [alertsTrigger, setAlertsTrigger] = useState('desktop');
   const [a11yTrigger, setA11yTrigger] = useState('desktop');
@@ -32,13 +34,14 @@ export default function Navbar({ activeTab, setActiveTab }) {
   const desktopA11yBtnRef = useRef(null);
   const mobileA11yBtnRef = useRef(null);
 
-  // Active section for navigation: 'home' | 'inventory' | 'about-us'
+  // Active section for navigation: 'home' | 'inventory' | 'campus-activity' | 'about-us'
   const [activeNav, setActiveNav] = useState(() => (activeTab === 'about-us' ? 'about-us' : 'home'));
 
   // Refs for tracking button geometries for the sliding indicator
   const navRef = useRef(null);
   const homeBtnRef = useRef(null);
   const inventoryBtnRef = useRef(null);
+  const activityBtnRef = useRef(null);
   const aboutBtnRef = useRef(null);
   const [indicator, setIndicator] = useState({ left: 0, width: 0, opacity: 0 });
 
@@ -62,6 +65,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
     let targetRef = null;
     if (activeNav === 'home') targetRef = homeBtnRef.current;
     else if (activeNav === 'inventory') targetRef = inventoryBtnRef.current;
+    else if (activeNav === 'campus-activity') targetRef = activityBtnRef.current;
     else if (activeNav === 'about-us') targetRef = aboutBtnRef.current;
 
     if (targetRef && navRef.current) {
@@ -91,6 +95,8 @@ export default function Navbar({ activeTab, setActiveTab }) {
   useEffect(() => {
     if (activeTab === 'inventory') {
       setActiveNav('inventory');
+    } else if (activeTab === 'campus-activity') {
+      setActiveNav('campus-activity');
     } else if (activeTab === 'about-us') {
       setActiveNav('about-us');
     } else if (activeTab === 'privacy-terms') {
@@ -112,16 +118,47 @@ export default function Navbar({ activeTab, setActiveTab }) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleActivityClick = () => {
+    setActiveNav('campus-activity');
+    setActiveTab('campus-activity');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleAboutUsClick = () => {
     setActiveNav('about-us');
     setActiveTab('about-us');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleViewNotificationItem = (referenceId) => {
+  const handleViewNotificationItem = (notif) => {
     setIsNotifModalOpen(false);
     fetchUnreadCount();
-    setActiveTab('inventory');
+    if (!notif) return;
+
+    const refId = notif.reference_id || notif.referenceId;
+    const type = notif.type;
+
+    if (type === 'MATCH') {
+      setActiveNav('inventory');
+      setActiveTab('inventory', { targetItemId: refId });
+    } else if (type === 'CLAIM_APPROVED') {
+      setActiveNav('campus-activity');
+      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId });
+    } else if (type === 'CLAIM_SUBMITTED' || type === 'CLAIM_REJECTED' || type === 'HANDOVER_CONFIRMED') {
+      setActiveNav('campus-activity');
+      setActiveTab('campus-activity', { subTab: 'claims-meetups', targetClaimId: refId });
+    } else if (type === 'DISPUTE_UPDATE') {
+      if (role === 'admin') {
+        setActiveNav('admin-dashboard');
+        setActiveTab('admin-dashboard');
+      } else {
+        setActiveNav('campus-activity');
+        setActiveTab('campus-activity', { subTab: 'claims-meetups' });
+      }
+    } else {
+      setActiveNav('campus-activity');
+      setActiveTab('campus-activity', { subTab: 'claims-meetups' });
+    }
   };
 
   return (
@@ -182,7 +219,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
                 ref={inventoryBtnRef}
                 type="button"
                 onClick={handleBrowseInventory}
-                className={`relative z-10 px-4 py-1.5 rounded-full text-xs transition-colors duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95 ${
+                className={`relative z-10 px-3.5 py-1.5 rounded-full text-xs transition-colors duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95 ${
                   activeNav === 'inventory'
                     ? 'text-red-800 dark:text-red-300 font-semibold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium'
@@ -191,14 +228,41 @@ export default function Navbar({ activeTab, setActiveTab }) {
                 <span>Inventory</span>
               </button>
 
+              {/* Campus Activity (Student only) */}
+              {role !== 'admin' && (
+                <button
+                  ref={activityBtnRef}
+                  type="button"
+                  onClick={handleActivityClick}
+                  className={`relative z-10 px-3.5 py-1.5 rounded-full text-xs transition-colors duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95 whitespace-nowrap ${
+                    activeNav === 'campus-activity'
+                      ? 'text-red-800 dark:text-red-300 font-semibold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium'
+                  }`}
+                >
+                  <span>Campus Activity</span>
+                </button>
+              )}
+
               {/* Report Lost Item (hidden for admin) */}
               {role !== 'admin' && (
                 <button
                   type="button"
                   onClick={() => setIsReportModalOpen(true)}
-                  className="relative z-10 px-4 py-1.5 rounded-full text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95"
+                  className="relative z-10 px-3 py-1.5 rounded-full text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95 whitespace-nowrap"
                 >
-                  <span>Report Lost Item</span>
+                  <span>Report Lost</span>
+                </button>
+              )}
+
+              {/* Post Found Item (hidden for admin) */}
+              {role !== 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => setIsPostFoundModalOpen(true)}
+                  className="relative z-10 px-3 py-1.5 rounded-full text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all duration-200 cursor-pointer select-none text-center flex items-center justify-center active:scale-95 whitespace-nowrap"
+                >
+                  <span>Post Found</span>
                 </button>
               )}
 
@@ -439,11 +503,41 @@ export default function Navbar({ activeTab, setActiveTab }) {
                   type="button"
                   onClick={() => {
                     setMobileMenuOpen(false);
+                    handleActivityClick();
+                  }}
+                  className={`w-full py-2.5 px-4 rounded-xl text-xs text-left transition-all duration-200 flex items-center justify-between cursor-pointer active:scale-95 ${
+                    activeNav === 'campus-activity'
+                      ? 'bg-red-500/[0.08] dark:bg-red-500/[0.14] text-red-800 dark:text-red-300 font-semibold border border-red-500/20 dark:border-red-500/30 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 border border-transparent font-medium'
+                  }`}
+                >
+                  <span>Campus Activity</span>
+                </button>
+              )}
+
+              {role !== 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
                     setIsReportModalOpen(true);
                   }}
                   className="w-full py-2.5 px-4 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 text-left transition-all duration-200 ease-out cursor-pointer active:scale-95 border border-transparent"
                 >
                   <span>Report Lost Item</span>
+                </button>
+              )}
+
+              {role !== 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setIsPostFoundModalOpen(true);
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 text-left transition-all duration-200 ease-out cursor-pointer active:scale-95 border border-transparent"
+                >
+                  <span>Post Found Item</span>
                 </button>
               )}
 
@@ -534,13 +628,22 @@ export default function Navbar({ activeTab, setActiveTab }) {
 
       {/* Quick Report Lost Item Modal (disabled for admin) */}
       {role !== 'admin' && (
-        <ReportLostItemModal
-          isOpen={isReportModalOpen}
-          onClose={() => setIsReportModalOpen(false)}
-          onReportCreated={() => {
-            setIsReportModalOpen(false);
-          }}
-        />
+        <>
+          <ReportLostItemModal
+            isOpen={isReportModalOpen}
+            onClose={() => setIsReportModalOpen(false)}
+            onReportCreated={() => {
+              setIsReportModalOpen(false);
+            }}
+          />
+          <PostFoundItemModal
+            isOpen={isPostFoundModalOpen}
+            onClose={() => setIsPostFoundModalOpen(false)}
+            onPostCreated={() => {
+              setIsPostFoundModalOpen(false);
+            }}
+          />
+        </>
       )}
     </>
   );

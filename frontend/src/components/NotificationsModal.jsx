@@ -9,7 +9,8 @@ import {
   SearchCheck,
   ShieldCheck,
   AlertCircle,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from 'lucide-react';
 
 function stripEmojis(str) {
@@ -172,6 +173,16 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
     }
   };
 
+  const handleDeleteNotification = async (notifId, e) => {
+    e?.stopPropagation();
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    try {
+      await itemService.deleteNotification(notifId);
+    } catch (err) {
+      console.error('Failed to delete notification:', err);
+    }
+  };
+
   const unreadCount = notifications.filter((n) => !n.is_read).length;
   const filteredNotifications =
     filter === 'unread' ? notifications.filter((n) => !n.is_read) : notifications;
@@ -316,8 +327,8 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
                   key={notif.id}
                   onClick={() => {
                     if (!notif.is_read) handleMarkAsRead(notif);
-                    if (notif.reference_id && onViewItem) {
-                      onViewItem(notif.reference_id);
+                    if (onViewItem) {
+                      onViewItem(notif);
                     }
                   }}
                   className="relative group cursor-pointer"
@@ -338,7 +349,7 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
                         : 'bg-white dark:bg-slate-900 hover:bg-slate-50/90 dark:hover:bg-slate-850/90 border-slate-200/80 dark:border-slate-800 text-slate-900 dark:text-white'
                     }`}
                   >
-                    {/* Top Row: Type Tag, Relative Time & Unread Indicator */}
+                    {/* Top Row: Type Tag, Relative Time & Delete Button */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span
@@ -356,10 +367,21 @@ export default function NotificationsModal({ isOpen, onClose, onViewItem, anchor
                         )}
                       </div>
 
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium flex items-center gap-1 shrink-0">
-                        <Clock className="w-3 h-3" />
-                        {formatRelativeTime(notif.created_at)}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium flex items-center gap-1 shrink-0">
+                          <Clock className="w-3 h-3" />
+                          {formatRelativeTime(notif.created_at)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteNotification(notif.id, e)}
+                          title="Delete notification"
+                          aria-label="Delete notification"
+                          className="w-6 h-6 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center justify-center transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Notification Content without emojis */}

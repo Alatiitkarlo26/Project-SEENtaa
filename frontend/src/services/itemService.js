@@ -137,6 +137,16 @@ export const itemService = {
     return data;
   },
 
+  async deleteNotification(id) {
+    const res = await fetch(`${API_URL}/notifications/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to delete notification');
+    return data;
+  },
+
   // =========================================================================
   // PROOF OF OWNERSHIP CLAIMS (FR-SEEN-0004, UC-004)
   // =========================================================================

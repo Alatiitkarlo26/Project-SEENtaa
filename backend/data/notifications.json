@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "id": "notif_1795784761941_0236k",
+    "user_id": "usr_1791464276992",
+    "title": "Dispute Case Update: Resolved",
+    "message": "Your dispute report for \"Silver Keychain with Motorcycle Key & Flash Drive\" has been updated to \"Resolved\". Notes: Arbitrated by Campus Security (Campus Administrator).",
+    "type": "DISPUTE_UPDATE",
+    "reference_id": "disp_1795783863440_gql1k",
+    "is_read": false,
+    "created_at": "2026-11-27T13:06:01.941Z"
+  }
+]

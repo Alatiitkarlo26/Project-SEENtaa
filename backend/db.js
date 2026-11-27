@@ -988,6 +988,27 @@ export const db = {
     return { success: true };
   },
 
+  async deleteNotification(id) {
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('notifications')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+        return { success: true, id };
+      } catch (err) {
+        console.error('[Supabase Error] deleteNotification failed:', err.message);
+        throw err;
+      }
+    }
+
+    const notifs = await readLocalJson(NOTIFICATIONS_FILE);
+    const filtered = notifs.filter((n) => n.id !== id);
+    await writeLocalJson(NOTIFICATIONS_FILE, filtered);
+    return { success: true, id };
+  },
+
   // =========================================================================
   // PROOF OF OWNERSHIP CLAIMS OPERATIONS (FR-SEEN-0004, UC-004)
   // =========================================================================
