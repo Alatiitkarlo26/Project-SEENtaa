@@ -205,7 +205,7 @@ export default function AuthPage({ defaultView = 'login', onAuthSuccess, isAdmin
           src={pupLogoAndText}
           alt="Polytechnic University of the Philippines"
           draggable={false}
-          className="h-10 sm:h-11 w-auto object-contain drop-shadow-xs brightness-100 dark:brightness-110 shrink-0 select-none"
+          className="h-10 sm:h-11 w-auto object-contain drop-shadow-xs brightness-100 dark:bg-white/95 dark:px-2.5 dark:py-1 dark:rounded-xl dark:shadow-md shrink-0 select-none transition-all duration-200"
         />
       </div>
 
@@ -341,7 +341,7 @@ export default function AuthPage({ defaultView = 'login', onAuthSuccess, isAdmin
                     id="loginAgreeTerms"
                     checked={loginAgreeTerms}
                     onChange={(e) => setLoginAgreeTerms(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded-xs border-neutral-300 text-theme focus:ring-theme cursor-pointer accent-theme shrink-0"
+                    className="w-3.5 h-3.5 rounded-xs border-neutral-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-theme focus:ring-theme cursor-pointer accent-theme shrink-0"
                   />
                   <label
                     htmlFor="loginAgreeTerms"
