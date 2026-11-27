@@ -548,13 +548,11 @@ app.post('/api/send-otp', async (req, res) => {
         message: `Real email successfully sent to your Outlook address (${cleanEmail})!`
       });
     } catch (err) {
-      console.warn('[GAS HTTPS Warning/Fallback]', err.message);
-      return res.json({
-        success: true,
+      console.error('[GAS HTTPS Error]', err.message);
+      return res.status(502).json({
+        success: false,
         delivered: false,
-        simulated: true,
-        code: otp,
-        message: `Google Apps Script notice (${err.message}). Ensure 'Who has access' is set to 'Anyone' in Apps Script Deploy settings. Instant code: ${otp}`
+        error: `Failed to deliver verification email: ${err.message}. If 403, set 'Who has access' to 'Anyone' in Google Apps Script Deploy settings.`
       });
     }
   }
@@ -592,13 +590,11 @@ app.post('/api/send-otp', async (req, res) => {
         message: `Real email successfully sent to your Outlook address (${cleanEmail})!`
       });
     } catch (err) {
-      console.warn('[Brevo HTTPS Warning/Fallback]', err.message);
-      return res.json({
-        success: true,
+      console.error('[Brevo HTTPS Error]', err.message);
+      return res.status(502).json({
+        success: false,
         delivered: false,
-        simulated: true,
-        code: otp,
-        message: `Brevo delivery notice (${err.message}). Instant code: ${otp}`
+        error: `Brevo email delivery failed: ${err.message}`
       });
     }
   }
@@ -626,7 +622,7 @@ app.post('/api/send-otp', async (req, res) => {
       });
 
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('SMTP connection timed out. Outbound SMTP ports 465/587 blocked by cloud host.')), 3500)
+        setTimeout(() => reject(new Error('SMTP connection timed out. Outbound SMTP ports 465/587 blocked by cloud host.')), 4000)
       );
 
       const info = await Promise.race([sendPromise, timeoutPromise]);
@@ -639,23 +635,20 @@ app.post('/api/send-otp', async (req, res) => {
         message: `Real email successfully sent to your Outlook address (${cleanEmail})!`
       });
     } catch (err) {
-      console.warn('[SMTP Warning/Fallback]', err.message);
-      return res.json({
-        success: true,
+      console.error('[SMTP Error]', err.message);
+      return res.status(502).json({
+        success: false,
         delivered: false,
-        simulated: true,
-        code: otp,
-        message: `Notice: Cloud host blocked outbound SMTP port 587/465. Instant verification code: ${otp}`
+        error: `Live email dispatch failed: ${err.message}. (Note: Render Free Tier blocks SMTP ports 465/587; configure GAS_MAILER_URL or BREVO_API_KEY).`
       });
     }
   }
 
-  console.log(`[Simulated Dispatch] OTP for ${cleanEmail} is: ${otp}`);
-  return res.json({
-    success: true,
+  console.warn(`[No Mailer Configured] Cannot deliver real OTP to ${cleanEmail}`);
+  return res.status(500).json({
+    success: false,
     delivered: false,
-    mode: 'simulated',
-    message: `SMTP not configured in .env yet. Simulated OTP is: ${otp}`
+    error: 'No live email service configured on the server. Please configure GAS_MAILER_URL or BREVO_API_KEY.'
   });
 });
 

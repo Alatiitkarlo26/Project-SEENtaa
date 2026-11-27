@@ -80,29 +80,22 @@ export const otpService = {
     let isLiveDelivered = false;
     let liveMessage = '';
 
-    // Attempt actual HTTP dispatch to the Node.js mailer backend
-    try {
-      const response = await fetch(`${API_URL}/send-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp, recipientName }),
-        signal: AbortSignal.timeout(6000)
-      });
+    // Dispatch real email via cloud mailer
+    const response = await fetch(`${API_URL}/send-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp, recipientName }),
+      signal: AbortSignal.timeout(15000)
+    });
 
-      if (response.ok) {
-        const text = await response.text();
-        const data = text ? JSON.parse(text) : {};
-        if (data.delivered) {
-          isLiveDelivered = true;
-          liveMessage = data.message;
-        } else if (data.code) {
-          otp = data.code;
-          liveMessage = data.message;
-        }
-      }
-    } catch (err) {
-      console.warn('Backend mailer unreachable or timed out, using local OTP store:', err.message);
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.delivered) {
+      throw new Error(data.error || 'Failed to dispatch real verification email. Please check your connection or institutional email address.');
     }
+
+    isLiveDelivered = true;
+    liveMessage = data.message;
 
     // Refresh stored OTP with confirmed code
     const updatedOtps = getStoredOTPs();

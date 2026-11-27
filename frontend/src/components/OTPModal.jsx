@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Clock, X } from 'lucide-react';
 import { otpService } from '../services/otpService';
-import OutlookSimulationModal from './OutlookSimulationModal';
 
 export default function OTPModal({ email, recipientName, isOpen, onClose, onVerified }) {
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
@@ -11,8 +10,6 @@ export default function OTPModal({ email, recipientName, isOpen, onClose, onVeri
   const [error, setError] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
-  const [showOutlookView, setShowOutlookView] = useState(false);
-  const [currentEmailData, setCurrentEmailData] = useState(null);
 
   const inputRefs = useRef([]);
 
@@ -23,9 +20,6 @@ export default function OTPModal({ email, recipientName, isOpen, onClose, onVeri
       setTimeLeft(300);
       setCanResend(false);
       setResendCooldown(30);
-
-      const latest = otpService.getLatestEmail(email);
-      setCurrentEmailData(latest);
 
       setTimeout(() => {
         if (inputRefs.current[0]) {
@@ -251,56 +245,12 @@ export default function OTPModal({ email, recipientName, isOpen, onClose, onVeri
             </button>
           </div>
 
-          {/* Instant Verification Helper when Cloud Mailer is simulated or blocked */}
-          {!currentEmailData?.isLiveDelivered && (
-            <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex flex-col items-center text-center gap-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200">
-                <span>🔑 Instant Verification Code:</span>
-                <span className="font-mono text-sm tracking-wider font-bold bg-amber-200/70 dark:bg-amber-900/60 px-2 py-0.5 rounded text-amber-950 dark:text-amber-100">
-                  {currentEmailData?.otp || '••••••'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                {currentEmailData?.otp && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const code = String(currentEmailData.otp);
-                      setDigits(code.split('').slice(0, 6));
-                      handleVerify(code);
-                    }}
-                    className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 dark:bg-amber-600 dark:hover:bg-amber-500 px-3 py-1 rounded-full transition shadow-xs cursor-pointer"
-                  >
-                    Auto-fill & Verify
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowOutlookView(true)}
-                  className="text-[11px] font-medium text-amber-700 dark:text-amber-300 hover:underline cursor-pointer"
-                >
-                  View Webmail Preview ↗
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Outlook Delivery Tip */}
           <p className="mt-4 text-[11px] text-slate-500 dark:text-slate-400 text-center leading-relaxed">
             📩 Can&apos;t find the email in your main inbox? Check your <strong>Junk Email</strong> folder. In Outlook, click <strong>&quot;Report as Not Junk&quot;</strong> to receive all future SEENta notifications directly in your Focused Inbox!
           </p>
         </div>
       </div>
-
-      <OutlookSimulationModal
-        emailData={currentEmailData}
-        isOpen={showOutlookView}
-        onClose={() => setShowOutlookView(false)}
-        onApplyOTP={(code) => {
-          setDigits(code.split('').slice(0, 6));
-          handleVerify(code);
-        }}
-      />
     </>
   );
 }
